@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+
+release.current.env
+release.previous.env
+release.candidate.env
+
+certbot/conf/
+*.log
+.DS_Store
