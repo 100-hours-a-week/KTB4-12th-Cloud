@@ -1,0 +1,381 @@
+name: Production CD
+
+run-name: >-
+  Deploy FE ${{ inputs.frontend_version }} / BE ${{ inputs.backend_version }}
+  by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      frontend_version:
+        description: Frontend image version (MAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      backend_version:
+        description: Backend image version (MAJOR.MINOR.PATCH)
+        required: true
+        type: string
+      change_summary:
+        description: Release summary and reason
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seonjalal-production
+  cancel-in-progress: false
+
+env:
+  FE_IMAGE: peterj0117/seonjalal-fe
+  BE_IMAGE: peterj0117/seonjalal-be
+
+jobs:
+  validate-release:
+    name: Validate release candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      frontend_version: ${{ steps.version.outputs.frontend_version }}
+      backend_version: ${{ steps.version.outputs.backend_version }}
+
+    steps:
+      - name: Require the main branch
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" != "refs/heads/main" ]]; then
+            echo "Production deployment must run from the main branch." >&2
+            exit 1
+          fi
+
+      - name: Validate image versions
+        id: version
+        shell: bash
+        env:
+          FRONTEND_VERSION: ${{ inputs.frontend_version }}
+          BACKEND_VERSION: ${{ inputs.backend_version }}
+        run: |
+          set -euo pipefail
+
+          VERSION_PATTERN='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+          if [[ ! "${FRONTEND_VERSION}" =~ ${VERSION_PATTERN} ]]; then
+            echo "Invalid frontend version: ${FRONTEND_VERSION}" >&2
+            exit 1
+          fi
+
+          if [[ ! "${BACKEND_VERSION}" =~ ${VERSION_PATTERN} ]]; then
+            echo "Invalid backend version: ${BACKEND_VERSION}" >&2
+            exit 1
+          fi
+
+          echo "frontend_version=${FRONTEND_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "backend_version=${BACKEND_VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Verify Docker Hub images
+        shell: bash
+        env:
+          FRONTEND_VERSION: ${{ steps.version.outputs.frontend_version }}
+          BACKEND_VERSION: ${{ steps.version.outputs.backend_version }}
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools inspect "${FE_IMAGE}:${FRONTEND_VERSION}"
+          docker buildx imagetools inspect "${BE_IMAGE}:${BACKEND_VERSION}"
+
+      - name: Record release request
+        shell: bash
+        env:
+          FRONTEND_VERSION: ${{ steps.version.outputs.frontend_version }}
+          BACKEND_VERSION: ${{ steps.version.outputs.backend_version }}
+          CHANGE_SUMMARY: ${{ inputs.change_summary }}
+        run: |
+          {
+            echo "## Production release request"
+            echo
+            echo "- Frontend: \`${FE_IMAGE}:${FRONTEND_VERSION}\`"
+            echo "- Backend: \`${BE_IMAGE}:${BACKEND_VERSION}\`"
+            echo "- Requested by: \`${GITHUB_ACTOR}\`"
+            echo "- Summary: ${CHANGE_SUMMARY}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy-production:
+    name: Deploy to production EC2
+    needs: validate-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+      SSH_USER: ${{ secrets.PROD_SSH_USER }}
+      SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
+      SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+      DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH || '/opt/seonjalal' }}
+      PUBLIC_BASE_URL: ${{ vars.PROD_BASE_URL }}
+      READ_ONLY_SMOKE_PATH: ${{ vars.PROD_READ_ONLY_SMOKE_PATH || '/api/products' }}
+
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          : "${SSH_HOST:?PROD_SSH_HOST secret is required}"
+          : "${SSH_USER:?PROD_SSH_USER secret is required}"
+          : "${SSH_PRIVATE_KEY:?PROD_SSH_PRIVATE_KEY secret is required}"
+          : "${SSH_KNOWN_HOSTS:?PROD_SSH_KNOWN_HOSTS secret is required}"
+          : "${DEPLOY_PATH:?PROD_DEPLOY_PATH variable is required}"
+          : "${PUBLIC_BASE_URL:?PROD_BASE_URL variable is required}"
+
+          if [[ ! "${PUBLIC_BASE_URL}" =~ ^https:// ]]; then
+            echo "PROD_BASE_URL must use HTTPS." >&2
+            exit 1
+          fi
+
+          if [[ ! "${READ_ONLY_SMOKE_PATH}" =~ ^/ ]]; then
+            echo "PROD_READ_ONLY_SMOKE_PATH must start with /." >&2
+            exit 1
+          fi
+
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SSH_PORT="${SSH_PORT:-22}"
+          echo "SSH_PORT=${SSH_PORT}" >> "${GITHUB_ENV}"
+
+          install -d -m 700 "${RUNNER_TEMP}/ssh"
+          printf '%s\n' "${SSH_PRIVATE_KEY}" > "${RUNNER_TEMP}/ssh/deploy_key"
+          printf '%s\n' "${SSH_KNOWN_HOSTS}" > "${RUNNER_TEMP}/ssh/known_hosts"
+          chmod 600 "${RUNNER_TEMP}/ssh/deploy_key" "${RUNNER_TEMP}/ssh/known_hosts"
+
+      - name: Check the remote deployment directory
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${RUNNER_TEMP}/ssh/deploy_key" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${SSH_HOST}" \
+            "test -d '${DEPLOY_PATH}' && test -f '${DEPLOY_PATH}/.env' && test -f '${DEPLOY_PATH}/compose.yaml' && test -f '${DEPLOY_PATH}/compose.production.yaml' && test -x '${DEPLOY_PATH}/scripts/verify.sh'"
+
+      - name: Deploy and verify release
+        shell: bash
+        env:
+          FRONTEND_VERSION: ${{ needs.validate-release.outputs.frontend_version }}
+          BACKEND_VERSION: ${{ needs.validate-release.outputs.backend_version }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i "${RUNNER_TEMP}/ssh/deploy_key" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
+            -p "${SSH_PORT}" \
+            "${SSH_USER}@${SSH_HOST}" \
+            bash -s -- \
+            "${DEPLOY_PATH}" \
+            "${FRONTEND_VERSION}" \
+            "${BACKEND_VERSION}" \
+            "${PUBLIC_BASE_URL}" \
+            "${READ_ONLY_SMOKE_PATH}" <<'REMOTE_SCRIPT'
+          set -Eeuo pipefail
+
+          DEPLOY_PATH="$1"
+          FRONTEND_VERSION="$2"
+          BACKEND_VERSION="$3"
+          PUBLIC_BASE_URL="$4"
+          READ_ONLY_SMOKE_PATH="$5"
+
+          cd "${DEPLOY_PATH}"
+          umask 077
+
+          BASE_ENV=".env"
+          CANDIDATE_ENV="release.candidate.env"
+          CURRENT_ENV="release.current.env"
+          PREVIOUS_ENV="release.previous.env"
+          COMPOSE_FILES=(-f compose.yaml -f compose.production.yaml)
+
+          compose() {
+            local env_file="$1"
+            shift
+            docker compose --env-file "${env_file}" "${COMPOSE_FILES[@]}" "$@"
+          }
+
+          wait_for_healthy() {
+            local env_file="$1"
+            local service="$2"
+            local container_id
+            local status
+
+            container_id="$(compose "${env_file}" ps -q "${service}")"
+            if [[ -z "${container_id}" ]]; then
+              echo "Container for ${service} was not created." >&2
+              return 1
+            fi
+
+            for attempt in {1..30}; do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container_id}")"
+
+              if [[ "${status}" == "healthy" ]]; then
+                return 0
+              fi
+
+              if [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]]; then
+                echo "${service} entered ${status} state." >&2
+                return 1
+              fi
+
+              echo "Waiting for ${service} health (${attempt}/30): ${status}"
+              sleep 2
+            done
+
+            echo "Timed out waiting for ${service} health." >&2
+            return 1
+          }
+
+          verify_external_routes() {
+            local health_response
+
+            curl --fail-with-body --silent --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 2 \
+              "${PUBLIC_BASE_URL}/" \
+              >/dev/null
+
+            health_response="$(
+              curl --fail-with-body --silent --show-error \
+                --retry 5 \
+                --retry-all-errors \
+                --retry-delay 2 \
+                "${PUBLIC_BASE_URL}/api/health"
+            )"
+            grep --quiet --extended-regexp \
+              '"status"[[:space:]]*:[[:space:]]*"UP"' \
+              <<< "${health_response}"
+
+            curl --fail-with-body --silent --show-error \
+              --retry 5 \
+              --retry-all-errors \
+              --retry-delay 2 \
+              "${PUBLIC_BASE_URL}${READ_ONLY_SMOKE_PATH}" \
+              >/dev/null
+          }
+
+          rollback_on_error() {
+            local deploy_exit="$?"
+            trap - ERR
+            set +e
+
+            echo "Deployment failed. Collecting container status and logs." >&2
+            compose "${CANDIDATE_ENV}" ps >&2
+            compose "${CANDIDATE_ENV}" logs --no-color --tail=200 frontend backend >&2
+
+            if [[ ! -s "${PREVIOUS_ENV}" ]]; then
+              echo "No previous release is available. Manual recovery is required." >&2
+              exit "${deploy_exit}"
+            fi
+
+            echo "Rolling back to the previous frontend/backend release." >&2
+            compose "${PREVIOUS_ENV}" pull frontend backend
+            compose "${PREVIOUS_ENV}" up -d --no-deps backend
+
+            if ! wait_for_healthy "${PREVIOUS_ENV}" backend; then
+              echo "Backend rollback verification failed. Stop automatic retries and recover manually." >&2
+              exit "${deploy_exit}"
+            fi
+
+            compose "${PREVIOUS_ENV}" up -d --no-deps frontend
+
+            if ! wait_for_healthy "${PREVIOUS_ENV}" frontend; then
+              echo "Frontend rollback verification failed. Stop automatic retries and recover manually." >&2
+              exit "${deploy_exit}"
+            fi
+
+            if ! ENV_FILE="${PREVIOUS_ENV}" ./scripts/verify.sh production; then
+              echo "Rollback smoke test failed. Stop automatic retries and recover manually." >&2
+              exit "${deploy_exit}"
+            fi
+
+            if ! verify_external_routes; then
+              echo "Rollback external route verification failed. Stop automatic retries and recover manually." >&2
+              exit "${deploy_exit}"
+            fi
+
+            cp "${PREVIOUS_ENV}" "${CURRENT_ENV}"
+            chmod 600 "${CURRENT_ENV}"
+            echo "Rollback succeeded. The deployment remains failed for investigation." >&2
+            exit "${deploy_exit}"
+          }
+
+          cp "${BASE_ENV}" "${CANDIDATE_ENV}"
+          sed -i.bak -E '/^(FE_VERSION|BE_VERSION)=/d' "${CANDIDATE_ENV}"
+          rm -f "${CANDIDATE_ENV}.bak"
+          {
+            echo "FE_VERSION=${FRONTEND_VERSION}"
+            echo "BE_VERSION=${BACKEND_VERSION}"
+          } >> "${CANDIDATE_ENV}"
+          chmod 600 "${CANDIDATE_ENV}"
+
+          if [[ -s "${CURRENT_ENV}" ]]; then
+            cp "${CURRENT_ENV}" "${PREVIOUS_ENV}"
+          else
+            cp "${BASE_ENV}" "${PREVIOUS_ENV}"
+          fi
+          chmod 600 "${PREVIOUS_ENV}"
+
+          compose "${CANDIDATE_ENV}" config --quiet
+          compose "${CANDIDATE_ENV}" pull frontend backend
+
+          echo "Disk usage before deployment:"
+          df -h "${DEPLOY_PATH}"
+          echo "Memory usage before deployment:"
+          free -h
+
+          DATABASE_ID="$(compose "${CANDIDATE_ENV}" ps -q database)"
+          if [[ -z "${DATABASE_ID}" ]]; then
+            echo "The production database container is not running." >&2
+            exit 1
+          fi
+
+          DATABASE_STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${DATABASE_ID}")"
+          if [[ "${DATABASE_STATUS}" != "healthy" ]]; then
+            echo "The production database is not healthy: ${DATABASE_STATUS}" >&2
+            exit 1
+          fi
+
+          # Preflight failures above leave the running release unchanged.
+          # Rollback starts only after the first application container is replaced.
+          trap rollback_on_error ERR
+
+          compose "${CANDIDATE_ENV}" up -d --no-deps backend
+          wait_for_healthy "${CANDIDATE_ENV}" backend
+
+          compose "${CANDIDATE_ENV}" up -d --no-deps frontend
+          wait_for_healthy "${CANDIDATE_ENV}" frontend
+
+          ENV_FILE="${CANDIDATE_ENV}" ./scripts/verify.sh production
+          verify_external_routes
+
+          cp "${CANDIDATE_ENV}" "${CURRENT_ENV}"
+          chmod 600 "${CURRENT_ENV}"
+
+          trap - ERR
+          echo "Production deployment succeeded."
+          REMOTE_SCRIPT
+
+      - name: Clean up SSH material
+        if: always()
+        shell: bash
+        run: rm -f "${RUNNER_TEMP}/ssh/deploy_key" "${RUNNER_TEMP}/ssh/known_hosts"
