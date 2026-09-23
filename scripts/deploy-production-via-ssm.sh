@@ -50,15 +50,15 @@ printf -v READ_ONLY_SMOKE_PATH_Q '%q' "${READ_ONLY_SMOKE_PATH}"
 
 REMOTE_WRAPPER="$(cat <<EOF
 set -Eeuo pipefail
-temporary_script=\"\$(mktemp /tmp/seonjalal-production-deploy.XXXXXX)\"
+temporary_script="\$(mktemp /tmp/seonjalal-production-deploy.XXXXXX)"
 cleanup() {
-  rm -f \"\${temporary_script}\"
+  rm -f "\${temporary_script}"
 }
 trap cleanup EXIT
-printf '%s' '${SCRIPT_PAYLOAD}' | base64 --decode | gzip --decompress > \"\${temporary_script}\"
-chmod 700 \"\${temporary_script}\"
-chown ec2-user:ec2-user \"\${temporary_script}\"
-runuser -u ec2-user -- \"\${temporary_script}\" ${DEPLOY_PATH_Q} ${FRONTEND_VERSION_Q} ${BACKEND_VERSION_Q} ${PUBLIC_BASE_URL_Q} ${READ_ONLY_SMOKE_PATH_Q}
+printf '%s' '${SCRIPT_PAYLOAD}' | base64 --decode | gzip --decompress > "\${temporary_script}"
+chmod 700 "\${temporary_script}"
+chown ec2-user:ec2-user "\${temporary_script}"
+runuser -u ec2-user -- "\${temporary_script}" ${DEPLOY_PATH_Q} ${FRONTEND_VERSION_Q} ${BACKEND_VERSION_Q} ${PUBLIC_BASE_URL_Q} ${READ_ONLY_SMOKE_PATH_Q}
 EOF
 )"
 
