@@ -108,12 +108,13 @@ jobs:
     needs: validate-release
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     env:
-      SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
-      SSH_USER: ${{ secrets.PROD_SSH_USER }}
-      SSH_PORT: ${{ secrets.PROD_SSH_PORT }}
-      SSH_PRIVATE_KEY: ${{ secrets.PROD_SSH_PRIVATE_KEY }}
-      SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+      AWS_ROLE_ARN: ${{ vars.PROD_AWS_ROLE_ARN }}
+      AWS_DEPLOY_REGION: ${{ vars.PROD_AWS_REGION }}
+      INSTANCE_ID: ${{ vars.PROD_EC2_INSTANCE_ID }}
       DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH || '/opt/seonjalal' }}
       PUBLIC_BASE_URL: ${{ vars.PROD_BASE_URL }}
       READ_ONLY_SMOKE_PATH: ${{ vars.PROD_READ_ONLY_SMOKE_PATH || '/api/products' }}
@@ -124,12 +125,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          : "${SSH_HOST:?PROD_SSH_HOST secret is required}"
-          : "${SSH_USER:?PROD_SSH_USER secret is required}"
-          : "${SSH_PRIVATE_KEY:?PROD_SSH_PRIVATE_KEY secret is required}"
-          : "${SSH_KNOWN_HOSTS:?PROD_SSH_KNOWN_HOSTS secret is required}"
+          : "${AWS_ROLE_ARN:?PROD_AWS_ROLE_ARN variable is required}"
+          : "${AWS_DEPLOY_REGION:?PROD_AWS_REGION variable is required}"
+          : "${INSTANCE_ID:?PROD_EC2_INSTANCE_ID variable is required}"
           : "${DEPLOY_PATH:?PROD_DEPLOY_PATH variable is required}"
           : "${PUBLIC_BASE_URL:?PROD_BASE_URL variable is required}"
+
+          if [[ ! "${AWS_ROLE_ARN}" =~ ^arn:aws:iam::721744297924:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then
+            echo "PROD_AWS_ROLE_ARN must reference an IAM role in the production AWS account." >&2
+            exit 1
+          fi
+
+          if [[ "${AWS_DEPLOY_REGION}" != "ap-northeast-2" ]]; then
+            echo "PROD_AWS_REGION must be ap-northeast-2." >&2
+            exit 1
+          fi
+
+          if [[ ! "${INSTANCE_ID}" =~ ^i-[a-f0-9]{8,17}$ ]]; then
+            echo "PROD_EC2_INSTANCE_ID is invalid." >&2
+            exit 1
+          fi
+
+          if [[ ! "${DEPLOY_PATH}" =~ ^/[A-Za-z0-9._/-]+$ || "${DEPLOY_PATH}" == *".."* ]]; then
+            echo "PROD_DEPLOY_PATH must be an absolute path without traversal segments." >&2
+            exit 1
+          fi
 
           if [[ ! "${PUBLIC_BASE_URL}" =~ ^https:// ]]; then
             echo "PROD_BASE_URL must use HTTPS." >&2
@@ -141,34 +161,22 @@ jobs:
             exit 1
           fi
 
-      - name: Configure SSH
+      - name: Check out deployment scripts
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_DEPLOY_REGION }}
+          role-session-name: seonjalal-production-cd
+          allowed-account-ids: "721744297924"
+
+      - name: Verify AWS identity
         shell: bash
-        run: |
-          set -euo pipefail
+        run: aws sts get-caller-identity
 
-          SSH_PORT="${SSH_PORT:-22}"
-          echo "SSH_PORT=${SSH_PORT}" >> "${GITHUB_ENV}"
-
-          install -d -m 700 "${RUNNER_TEMP}/ssh"
-          printf '%s\n' "${SSH_PRIVATE_KEY}" > "${RUNNER_TEMP}/ssh/deploy_key"
-          printf '%s\n' "${SSH_KNOWN_HOSTS}" > "${RUNNER_TEMP}/ssh/known_hosts"
-          chmod 600 "${RUNNER_TEMP}/ssh/deploy_key" "${RUNNER_TEMP}/ssh/known_hosts"
-
-      - name: Check the remote deployment directory
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ssh \
-            -i "${RUNNER_TEMP}/ssh/deploy_key" \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
-            -p "${SSH_PORT}" \
-            "${SSH_USER}@${SSH_HOST}" \
-            "test -d '${DEPLOY_PATH}' && test -f '${DEPLOY_PATH}/.env' && test -f '${DEPLOY_PATH}/compose.yaml' && test -f '${DEPLOY_PATH}/compose.production.yaml' && test -x '${DEPLOY_PATH}/scripts/verify.sh'"
-
-      - name: Deploy and verify release
+      - name: Deploy and verify release through SSM
         shell: bash
         env:
           FRONTEND_VERSION: ${{ needs.validate-release.outputs.frontend_version }}
@@ -176,206 +184,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          ssh \
-            -i "${RUNNER_TEMP}/ssh/deploy_key" \
-            -o BatchMode=yes \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile="${RUNNER_TEMP}/ssh/known_hosts" \
-            -p "${SSH_PORT}" \
-            "${SSH_USER}@${SSH_HOST}" \
-            bash -s -- \
+          ./scripts/deploy-production-via-ssm.sh \
+            "${INSTANCE_ID}" \
             "${DEPLOY_PATH}" \
             "${FRONTEND_VERSION}" \
             "${BACKEND_VERSION}" \
             "${PUBLIC_BASE_URL}" \
-            "${READ_ONLY_SMOKE_PATH}" <<'REMOTE_SCRIPT'
-          set -Eeuo pipefail
-
-          DEPLOY_PATH="$1"
-          FRONTEND_VERSION="$2"
-          BACKEND_VERSION="$3"
-          PUBLIC_BASE_URL="$4"
-          READ_ONLY_SMOKE_PATH="$5"
-
-          cd "${DEPLOY_PATH}"
-          umask 077
-
-          BASE_ENV=".env"
-          CANDIDATE_ENV="release.candidate.env"
-          CURRENT_ENV="release.current.env"
-          PREVIOUS_ENV="release.previous.env"
-          COMPOSE_FILES=(-f compose.yaml -f compose.production.yaml)
-
-          compose() {
-            local env_file="$1"
-            shift
-            docker compose --env-file "${env_file}" "${COMPOSE_FILES[@]}" "$@"
-          }
-
-          wait_for_healthy() {
-            local env_file="$1"
-            local service="$2"
-            local container_id
-            local status
-
-            container_id="$(compose "${env_file}" ps -q "${service}")"
-            if [[ -z "${container_id}" ]]; then
-              echo "Container for ${service} was not created." >&2
-              return 1
-            fi
-
-            for attempt in {1..30}; do
-              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${container_id}")"
-
-              if [[ "${status}" == "healthy" ]]; then
-                return 0
-              fi
-
-              if [[ "${status}" == "unhealthy" || "${status}" == "exited" || "${status}" == "dead" ]]; then
-                echo "${service} entered ${status} state." >&2
-                return 1
-              fi
-
-              echo "Waiting for ${service} health (${attempt}/30): ${status}"
-              sleep 2
-            done
-
-            echo "Timed out waiting for ${service} health." >&2
-            return 1
-          }
-
-          verify_external_routes() {
-            local health_response
-
-            curl --fail-with-body --silent --show-error \
-              --retry 5 \
-              --retry-all-errors \
-              --retry-delay 2 \
-              "${PUBLIC_BASE_URL}/" \
-              >/dev/null
-
-            health_response="$(
-              curl --fail-with-body --silent --show-error \
-                --retry 5 \
-                --retry-all-errors \
-                --retry-delay 2 \
-                "${PUBLIC_BASE_URL}/api/health"
-            )"
-            grep --quiet --extended-regexp \
-              '"status"[[:space:]]*:[[:space:]]*"UP"' \
-              <<< "${health_response}"
-
-            curl --fail-with-body --silent --show-error \
-              --retry 5 \
-              --retry-all-errors \
-              --retry-delay 2 \
-              "${PUBLIC_BASE_URL}${READ_ONLY_SMOKE_PATH}" \
-              >/dev/null
-          }
-
-          rollback_on_error() {
-            local deploy_exit="$?"
-            trap - ERR
-            set +e
-
-            echo "Deployment failed. Collecting container status and logs." >&2
-            compose "${CANDIDATE_ENV}" ps >&2
-            compose "${CANDIDATE_ENV}" logs --no-color --tail=200 frontend backend >&2
-
-            if [[ ! -s "${PREVIOUS_ENV}" ]]; then
-              echo "No previous release is available. Manual recovery is required." >&2
-              exit "${deploy_exit}"
-            fi
-
-            echo "Rolling back to the previous frontend/backend release." >&2
-            compose "${PREVIOUS_ENV}" pull frontend backend
-            compose "${PREVIOUS_ENV}" up -d --no-deps backend
-
-            if ! wait_for_healthy "${PREVIOUS_ENV}" backend; then
-              echo "Backend rollback verification failed. Stop automatic retries and recover manually." >&2
-              exit "${deploy_exit}"
-            fi
-
-            compose "${PREVIOUS_ENV}" up -d --no-deps frontend
-
-            if ! wait_for_healthy "${PREVIOUS_ENV}" frontend; then
-              echo "Frontend rollback verification failed. Stop automatic retries and recover manually." >&2
-              exit "${deploy_exit}"
-            fi
-
-            if ! ENV_FILE="${PREVIOUS_ENV}" ./scripts/verify.sh production; then
-              echo "Rollback smoke test failed. Stop automatic retries and recover manually." >&2
-              exit "${deploy_exit}"
-            fi
-
-            if ! verify_external_routes; then
-              echo "Rollback external route verification failed. Stop automatic retries and recover manually." >&2
-              exit "${deploy_exit}"
-            fi
-
-            cp "${PREVIOUS_ENV}" "${CURRENT_ENV}"
-            chmod 600 "${CURRENT_ENV}"
-            echo "Rollback succeeded. The deployment remains failed for investigation." >&2
-            exit "${deploy_exit}"
-          }
-
-          cp "${BASE_ENV}" "${CANDIDATE_ENV}"
-          sed -i.bak -E '/^(FE_VERSION|BE_VERSION)=/d' "${CANDIDATE_ENV}"
-          rm -f "${CANDIDATE_ENV}.bak"
-          {
-            echo "FE_VERSION=${FRONTEND_VERSION}"
-            echo "BE_VERSION=${BACKEND_VERSION}"
-          } >> "${CANDIDATE_ENV}"
-          chmod 600 "${CANDIDATE_ENV}"
-
-          if [[ -s "${CURRENT_ENV}" ]]; then
-            cp "${CURRENT_ENV}" "${PREVIOUS_ENV}"
-          else
-            cp "${BASE_ENV}" "${PREVIOUS_ENV}"
-          fi
-          chmod 600 "${PREVIOUS_ENV}"
-
-          compose "${CANDIDATE_ENV}" config --quiet
-          compose "${CANDIDATE_ENV}" pull frontend backend
-
-          echo "Disk usage before deployment:"
-          df -h "${DEPLOY_PATH}"
-          echo "Memory usage before deployment:"
-          free -h
-
-          DATABASE_ID="$(compose "${CANDIDATE_ENV}" ps -q database)"
-          if [[ -z "${DATABASE_ID}" ]]; then
-            echo "The production database container is not running." >&2
-            exit 1
-          fi
-
-          DATABASE_STATUS="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "${DATABASE_ID}")"
-          if [[ "${DATABASE_STATUS}" != "healthy" ]]; then
-            echo "The production database is not healthy: ${DATABASE_STATUS}" >&2
-            exit 1
-          fi
-
-          # Preflight failures above leave the running release unchanged.
-          # Rollback starts only after the first application container is replaced.
-          trap rollback_on_error ERR
-
-          compose "${CANDIDATE_ENV}" up -d --no-deps backend
-          wait_for_healthy "${CANDIDATE_ENV}" backend
-
-          compose "${CANDIDATE_ENV}" up -d --no-deps frontend
-          wait_for_healthy "${CANDIDATE_ENV}" frontend
-
-          ENV_FILE="${CANDIDATE_ENV}" ./scripts/verify.sh production
-          verify_external_routes
-
-          cp "${CANDIDATE_ENV}" "${CURRENT_ENV}"
-          chmod 600 "${CURRENT_ENV}"
-
-          trap - ERR
-          echo "Production deployment succeeded."
-          REMOTE_SCRIPT
-
-      - name: Clean up SSH material
-        if: always()
-        shell: bash
-        run: rm -f "${RUNNER_TEMP}/ssh/deploy_key" "${RUNNER_TEMP}/ssh/known_hosts"
+            "${READ_ONLY_SMOKE_PATH}"
