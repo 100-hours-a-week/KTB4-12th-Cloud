@@ -1,0 +1,9 @@
+services:
+  frontend:
+    restart: unless-stopped
+
+  backend:
+    restart: unless-stopped
+
+  database:
+    restart: unless-stopped
