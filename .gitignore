@@ -9,3 +9,11 @@ release.candidate.env
 certbot/conf/
 *.log
 .DS_Store
+
+# Local-only project notes and generated load-test reports.
+# Only the repository README and GitHub PR template are committed Markdown files.
+docs/
+*.md
+!/README.md
+!/.github/pull_request_template.md
+load-tests/results/

@@ -1,0 +1,19 @@
+name: seonjalal-portainer
+
+services:
+  portainer:
+    image: portainer/portainer-ce:2.45.1
+    container_name: seonjalal-portainer
+    command: -H unix:///var/run/docker.sock
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+
+volumes:
+  portainer-data:
+    name: seonjalal_portainer-data
