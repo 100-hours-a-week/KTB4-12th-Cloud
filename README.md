@@ -1,32 +1,36 @@
-# KTB4-12th-Cloud
+# 선잘알 Cloud
 
-KTB4 12th team cloud infrastructure
+## 선잘알 소개
 
-## Production deployment
+선잘알은 사용자의 비선호 카테고리와 선물 이력을 반영하여 상황에 맞는 선물을 추천하고,
+선물 선택의 불확실성을 줄이는 서비스입니다.
 
-Production releases are started manually from `.github/workflows/cd-production.yml` on the `main` branch.
-GitHub Actions exchanges its OIDC token for short-lived AWS credentials and runs the deployment on the EC2 instance through AWS Systems Manager Run Command. No inbound SSH access from GitHub-hosted runners is required.
+주요 기능은 다음과 같습니다.
 
-### Required repository variables
+- 비선호 카테고리를 반영한 상품 탐색
+- 받은 선물 이력 조회
+- 상황과 대상에 맞는 선물 추천
 
-| Variable | Example |
+## 인프라의 역할
+
+이 저장소는 선잘알 서비스의 실행 환경과 배포 구성을 관리합니다.
+
+- Frontend, Backend, Database 컨테이너 실행 환경 관리
+- Nginx를 통한 정적 파일 제공과 Backend API 연결
+- 운영 환경의 Docker Compose 구성 관리
+- GitHub Actions와 AWS Systems Manager를 이용한 운영 배포
+- Health Check와 배포 후 검증
+- 부하 테스트 코드와 운영 보조 도구 구성 관리
+
+## 브랜치별 의미
+
+| 브랜치 | 의미 |
 |---|---|
-| `PROD_AWS_ROLE_ARN` | `arn:aws:iam::721744297924:role/seonjalal-v1-github-actions-role` |
-| `PROD_AWS_REGION` | `ap-northeast-2` |
-| `PROD_EC2_INSTANCE_ID` | `i-0417358a95b551c12` |
-| `PROD_DEPLOY_PATH` | `/opt/seonjalal` |
-| `PROD_BASE_URL` | `https://www.seonjalal.com` |
-| `PROD_READ_ONLY_SMOKE_PATH` | `/api/products` |
+| `main` | 운영에 반영할 수 있는 안정된 코드와 설정을 관리합니다. |
+| `develop` | 기능 브랜치의 변경사항을 통합하고 운영 반영 전에 검증합니다. |
+| `feat/*` | 새로운 인프라 기능이나 운영 구성을 추가합니다. |
+| `fix/*` | 배포, 설정 또는 운영 과정에서 발견한 문제를 수정합니다. |
+| `chore/*` | 의존성, 자동화, 저장소 설정 등 기능 외 유지보수 작업을 수행합니다. |
 
-The OIDC role trust policy must restrict access to `100-hours-a-week/KTB4-12th-Cloud` on `refs/heads/main`. Its permissions must allow `ssm:SendCommand` for the production instance and `AWS-RunShellScript`, plus `ssm:GetCommandInvocation` and `ssm:ListCommandInvocations` for reading the result.
-
-### EC2 prerequisites
-
-The deployment directory must already contain:
-
-- `.env`
-- `compose.yaml`
-- `compose.production.yaml`
-- executable `scripts/verify.sh`
-
-The database container must also be running and healthy before a release starts. The workflow transfers `scripts/deploy-production.sh` through SSM, deploys Backend and Frontend in order, runs internal and external smoke tests, and rolls back to the previous release environment if an application replacement fails.
+기능 작업은 별도 브랜치에서 진행한 뒤 `develop`에 병합하고, 검증이 끝난 변경사항을
+`main`에 반영합니다.

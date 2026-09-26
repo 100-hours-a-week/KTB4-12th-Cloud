@@ -9,3 +9,10 @@ release.candidate.env
 certbot/conf/
 *.log
 .DS_Store
+
+# Local-only project notes and generated load-test reports.
+# The repository root README is the only new Markdown document committed.
+docs/
+*.md
+!/README.md
+load-tests/results/
