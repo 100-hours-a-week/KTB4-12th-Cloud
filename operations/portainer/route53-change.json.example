@@ -1,0 +1,18 @@
+{
+  "Comment": "Route portainer.seonjalal.com to the V1 production EC2",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "portainer.seonjalal.com",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [
+          {
+            "Value": "CHANGE_ME_PRODUCTION_EC2_PUBLIC_IPV4"
+          }
+        ]
+      }
+    }
+  ]
+}
