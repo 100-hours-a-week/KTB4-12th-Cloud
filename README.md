@@ -34,3 +34,23 @@
 
 기능 작업은 별도 브랜치에서 진행한 뒤 `develop`에 병합하고, 검증이 끝난 변경사항을
 `main`에 반영합니다.
+
+## AI 서비스 미배포 상태의 Backend 실행
+
+Backend `1.1.0`부터 AI 프로파일링 URL과 내부 서비스 토큰이 시작 시점의 필수 설정입니다.
+AI 컨테이너를 아직 배포하지 않는 환경에서는 다음 값을 운영 `.env`에 설정합니다.
+
+```dotenv
+AI_PROFILE_BASE_URL=http://ai:8000
+PROFILING_SERVICE_TOKEN=<환경별로 생성한 비밀값>
+SCHEDULING_ENABLED=false
+```
+
+- `SCHEDULING_ENABLED=false`는 AI 프로파일링 배치 호출을 중지합니다.
+- URL과 토큰은 Backend 설정 객체 생성에 필요하므로 AI 기능을 사용하지 않더라도 생략할 수 없습니다.
+- `localhost`는 Backend 컨테이너 자신을 가리키므로 향후 AI 컨테이너 연동에는 `http://ai:8000`을 사용합니다.
+- 실제 토큰은 저장소에 커밋하지 않고 운영 서버의 `.env`에서 관리합니다.
+- AI 서비스가 배포되기 전까지 AI 프로파일링·추천 결과 갱신 기능은 동작하지 않습니다.
+
+운영 배포 전에는 Backend Flyway 마이그레이션의 데이터 변경 범위를 확인하고 DB를 백업해야 합니다.
+현재 자동 Rollback은 Frontend와 Backend 컨테이너만 이전 이미지로 복구하며 DB 변경은 되돌리지 않습니다.
