@@ -1,6 +1,6 @@
 server {
     listen 80;
-    server_name staging.seonjalal.com;
+    server_name dev.seonjalal.com;
 
     # Keep port 80 closed in the Security Group during normal operation.
     # Temporarily allow it only for an HTTP certificate challenge, or use DNS validation.
@@ -16,10 +16,10 @@ server {
 
 server {
     listen 443 ssl;
-    server_name staging.seonjalal.com;
+    server_name dev.seonjalal.com;
 
-    ssl_certificate /etc/letsencrypt/live/staging.seonjalal.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/staging.seonjalal.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/dev.seonjalal.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/dev.seonjalal.com/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:8081;

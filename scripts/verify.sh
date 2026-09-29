@@ -16,11 +16,11 @@ case "${MODE}" in
   production)
     COMPOSE_ARGS+=(-f compose.production.yaml)
     ;;
-  staging)
-    COMPOSE_ARGS+=(-f compose.staging.yaml)
+  develop)
+    COMPOSE_ARGS+=(-f compose.develop.yaml)
     ;;
   *)
-    echo "Usage: ENV_FILE=<path> $0 [local|staging|production]" >&2
+    echo "Usage: ENV_FILE=<path> $0 [local|develop|production]" >&2
     exit 2
     ;;
 esac

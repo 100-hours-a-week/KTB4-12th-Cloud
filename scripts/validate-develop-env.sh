@@ -2,10 +2,10 @@
 
 set -euo pipefail
 
-ENV_FILE="${1:-.env.staging}"
+ENV_FILE="${1:-.env.develop}"
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  echo "Staging environment file does not exist: ${ENV_FILE}" >&2
+  echo "Develop environment file does not exist: ${ENV_FILE}" >&2
   exit 1
 fi
 
@@ -45,7 +45,7 @@ required=(
 
 for key in "${required[@]}"; do
   if [[ -z "$(get_value "${key}")" ]]; then
-    echo "Missing required staging value: ${key}" >&2
+    echo "Missing required develop value: ${key}" >&2
     exit 1
   fi
 done
@@ -58,13 +58,13 @@ fi
 for key in DB_PASSWORD DB_ROOT_PASSWORD JWT_SECRET_BASE64 \
   LOGIN_RATE_LIMIT_HMAC_SECRET_BASE64 PROFILING_SERVICE_TOKEN; do
   if [[ "$(get_value "${key}")" == "change-me" ]]; then
-    echo "Replace the placeholder staging secret: ${key}" >&2
+    echo "Replace the placeholder develop secret: ${key}" >&2
     exit 1
   fi
 done
 
 if [[ "$(get_value PRODUCT_IMAGE_BUCKET)" == change-me* ]]; then
-  echo "Replace the placeholder staging bucket name." >&2
+  echo "Replace the placeholder develop bucket name." >&2
   exit 1
 fi
 
@@ -78,28 +78,28 @@ for key in FE_VERSION BE_VERSION; do
   fi
 done
 
-if [[ "$(get_value COMPOSE_PROJECT_NAME)" != *staging* ]]; then
-  echo "COMPOSE_PROJECT_NAME must identify the staging environment." >&2
+if [[ "$(get_value COMPOSE_PROJECT_NAME)" != *develop* ]]; then
+  echo "COMPOSE_PROJECT_NAME must identify the develop environment." >&2
   exit 1
 fi
 
-if [[ "$(get_value DB_VOLUME_NAME)" != *staging* ]]; then
-  echo "DB_VOLUME_NAME must identify a staging-only volume." >&2
+if [[ "$(get_value DB_VOLUME_NAME)" != *develop* ]]; then
+  echo "DB_VOLUME_NAME must identify a develop-only volume." >&2
   exit 1
 fi
 
-if [[ "$(get_value DB_NAME)" != *staging* || "$(get_value DB_USER)" != *staging* ]]; then
-  echo "DB_NAME and DB_USER must be staging-specific." >&2
+if [[ "$(get_value DB_NAME)" != *develop* || "$(get_value DB_USER)" != *develop* ]]; then
+  echo "DB_NAME and DB_USER must be develop-specific." >&2
   exit 1
 fi
 
-if [[ "$(get_value JWT_ISSUER)" != *staging* ]]; then
-  echo "JWT_ISSUER must identify the staging environment." >&2
+if [[ "$(get_value JWT_ISSUER)" != *develop* ]]; then
+  echo "JWT_ISSUER must identify the develop environment." >&2
   exit 1
 fi
 
-if [[ "$(get_value CORS_ALLOWED_ORIGINS)" != "https://staging.seonjalal.com" ]]; then
-  echo "CORS_ALLOWED_ORIGINS must be https://staging.seonjalal.com." >&2
+if [[ "$(get_value CORS_ALLOWED_ORIGINS)" != "https://dev.seonjalal.com" ]]; then
+  echo "CORS_ALLOWED_ORIGINS must be https://dev.seonjalal.com." >&2
   exit 1
 fi
 
@@ -108,4 +108,4 @@ if [[ "$(get_value AWS_REGION)" != "ap-northeast-2" ]]; then
   exit 1
 fi
 
-echo "Staging environment contract is valid. Secret values were not printed."
+echo "Develop environment contract is valid. Secret values were not printed."
