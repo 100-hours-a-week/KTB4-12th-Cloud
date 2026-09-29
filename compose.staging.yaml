@@ -1,0 +1,15 @@
+services:
+  frontend:
+    restart: unless-stopped
+
+  backend:
+    restart: unless-stopped
+    environment:
+      SPRING_JPA_SHOW_SQL: "${SPRING_JPA_SHOW_SQL:-false}"
+
+  database:
+    restart: unless-stopped
+
+volumes:
+  db-data:
+    name: "${DB_VOLUME_NAME:?DB_VOLUME_NAME is required for staging}"

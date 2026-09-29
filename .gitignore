@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.staging.example
 
 release.current.env
 release.previous.env

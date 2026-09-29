@@ -54,3 +54,120 @@ SCHEDULING_ENABLED=false
 
 운영 배포 전에는 Backend Flyway 마이그레이션의 데이터 변경 범위를 확인하고 DB를 백업해야 합니다.
 현재 자동 Rollback은 Frontend와 Backend 컨테이너만 이전 이미지로 복구하며 DB 변경은 되돌리지 않습니다.
+
+## Staging 구성 가이드
+
+Staging은 Production과 다른 EC2, Domain, DB Volume과 Secret을 사용한다. 초기 V1 Staging은
+운영과 같은 Docker Compose·MySQL 8.4 구조로 구성하고 `staging.seonjalal.com`을 사용한다.
+
+### 1. Staging Host 준비
+
+- Amazon Linux 계열 EC2를 별도로 준비한다.
+- 외부 SSH를 열기보다 SSM Session Manager를 사용한다.
+- Docker와 Docker Compose Major Version을 Production과 맞춘다.
+- 배포 경로는 `/opt/seonjalal-staging`을 사용한다.
+- 관리 접속은 SSM만 사용하고 SSH 22는 열지 않는다.
+- HTTPS 443은 개발자·운영자 Public IPv4 `/32`만 허용한다.
+- HTTP 80은 상시 공개하지 않고 인증서 발급 시에만 임시 허용하거나 DNS 검증을 사용한다.
+- Container Port 8081과 MySQL 3306은 외부에 열지 않고 내부에서만 사용한다.
+
+AWS Resource 생성·DNS 변경·인증서 발급은 대상 Account와 예상 비용을 확인한 뒤 수행한다.
+
+### 2. 환경변수 준비
+
+```bash
+cp .env.staging.example .env.staging
+chmod 600 .env.staging
+```
+
+`.env.staging`에서 Candidate Image Tag, Staging Bucket과 Secret을 실제 값으로 교체한다. Secret은
+Production 값을 재사용하지 않으며 저장소에 Commit하지 않는다.
+
+예시 Secret 생성 명령:
+
+```bash
+openssl rand -base64 48
+openssl rand -base64 48
+openssl rand -hex 32
+```
+
+작성한 환경 계약을 확인한다.
+
+```bash
+./scripts/validate-staging-env.sh .env.staging
+```
+
+### 3. Compose 구성 검증
+
+```bash
+docker compose \
+  --env-file .env.staging \
+  -f compose.yaml \
+  -f compose.staging.yaml \
+  config --quiet
+```
+
+Staging 전용 Host에서만 다음 기동 명령을 실행한다.
+
+```bash
+docker compose \
+  --env-file .env.staging \
+  -f compose.yaml \
+  -f compose.staging.yaml \
+  pull
+
+docker compose \
+  --env-file .env.staging \
+  -f compose.yaml \
+  -f compose.staging.yaml \
+  up -d
+```
+
+### 4. 내부 Health 검증
+
+```bash
+ENV_FILE=.env.staging ./scripts/verify.sh staging
+```
+
+검증 항목은 Compose Configuration, Container 상태, Frontend 응답과 `/api/health` Routing이다.
+
+### 5. Domain·TLS 연결
+
+1. `staging.seonjalal.com` Route 53 A Record를 Staging IP에 연결한다.
+2. `operations/staging/nginx/staging.seonjalal.com.conf.example`을 Host Nginx 기준으로 적용한다.
+3. DNS 검증을 우선 사용하거나, HTTP 검증 동안만 Security Group의 80을 임시 허용한다.
+4. 인증서 발급 후 80을 닫고 443 Source가 승인된 `/32` 목록뿐인지 확인한다.
+5. 허용된 Network에서 Frontend와 `/api/health`를 확인한다.
+
+```bash
+curl -fsS https://staging.seonjalal.com/ >/dev/null
+curl -fsS https://staging.seonjalal.com/api/health
+```
+
+권장 Staging Security Group Inbound 규칙:
+
+| Port | Source | 비고 |
+|---:|---|---|
+| 443 | 개발자·운영자 Public IPv4 `/32` | 승인된 사용자 Browser·k6 접근 |
+| 80 | 평소 규칙 없음 | HTTP 인증서 검증 시에만 임시 허용 |
+| 22 | 규칙 없음 | SSM Session Manager 사용 |
+| 8081·3306 | 규칙 없음 | Host Loopback·Docker Network 전용 |
+
+외부 Inbound를 전혀 허용하지 않는 운영이 필요하면 SSM Port Forwarding으로 Local Port와
+Staging Host의 8081을 연결해 `http://localhost:<local-port>`로 접근할 수 있다.
+
+```bash
+aws ssm start-session \
+  --target <staging-instance-id> \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["8081"],"localPortNumber":["18081"]}'
+```
+
+### 6. DB 격리 확인
+
+- 실제 Volume 이름이 `seonjalal-staging-db-data`인지 확인한다.
+- `DB_NAME`, `DB_USER`, JWT Issuer와 CORS Origin에 `staging`이 포함됐는지 확인한다.
+- 신규 DB에서 Flyway Migration이 성공했는지 Backend Log로 확인한다.
+- Staging에서 생성한 Test User가 Production에 존재하지 않는지 확인한다.
+
+Fixture 적재와 부하 테스트는 위 격리 확인과 Snapshot·Reset 절차가 완료된 뒤 진행한다.
