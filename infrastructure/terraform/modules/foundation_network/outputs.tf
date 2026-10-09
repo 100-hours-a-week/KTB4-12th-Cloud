@@ -27,11 +27,6 @@ output "security_group_ids" {
   }
 }
 
-output "nat_gateway_id" {
-  description = "Develop App Subnet이 공유하는 NAT Gateway ID"
-  value       = aws_nat_gateway.this.id
-}
-
 output "s3_vpc_endpoint_id" {
   description = "App Route Table에 연결된 S3 Gateway Endpoint ID"
   value       = aws_vpc_endpoint.s3.id

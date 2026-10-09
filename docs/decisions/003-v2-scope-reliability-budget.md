@@ -19,7 +19,7 @@
 | Production RTO | 초기 목표 60분 이내 | 복원·전환 Drill에서 실측 후 승인 |
 | Production RPO | 초기 목표 5분 이내 | RDS PITR와 정합성 검증 후 승인 |
 | Redis·Queue | 현재 Critical Path에서 제외한다. 요구가 확인될 때 별도 ADR로 추가한다. | 기본안, 2026-10-12 팀 확인 |
-| AI Database | PostgreSQL/pgvector 신규 구축은 현재 Critical Path에서 제외한다. 기존 AI 연동 계약만 보존한다. | 기본안, 2026-10-12 팀 확인 |
+| AI Runtime·Database | AI 기능은 V2 범위에 포함한다. Runtime 배치 방식과 PostgreSQL/pgvector의 데이터 성격·영속성·복구 책임은 별도 결정하되 A3 Foundation을 막지 않는다. | AI/BE 계약 확인 후 A4 이전 별도 ADR |
 
 `승인 전 실행 기준`은 Terraform Code 작성과 Local 정적 검증을 진행할 수 있다는 뜻이다. 실제 AWS
 Resource 생성, Production 전환 또는 비용 약정은 각 단계의 Plan과 비용표를 검토한 뒤 별도 승인한다.
@@ -70,15 +70,17 @@ A3 Foundation Network IaC
   → B4 중앙 관측 고도화와 V1/V2 비교 시험
 ```
 
-Redis, Queue, 신규 AI Database와 추가 V1 한계 시험은 위 경로를 막지 않는다. Application 요구가
-확인되면 영향 받는 Security Group, Secret, Backup, 관측과 비용을 별도 Plan으로 추가한다.
+Redis, Queue와 추가 V1 한계 시험은 위 경로를 막지 않는다. AI 기능은 V2 범위에 포함하지만 A3에서는
+Network 주소 공간과 격리 경계만 확보한다. AI Runtime의 ECS/단일 EC2 선택, 외부 API Egress,
+PostgreSQL/pgvector의 Source of Truth 여부, Backup과 복구 책임은 Application 계약을 확인한 뒤 별도
+ADR과 Plan으로 추가한다.
 
 ## 일정과 완료 조건
 
 | 작업 | Owner | 목표일 | 완료 조건 |
 |---|---|---:|---|
 | A2 팀 확인 | Cloud(Peter), PL/BE 확인 | 2026-10-12 | 기본안 변경 여부와 승인자를 기록한다. |
-| A3 Foundation Code | Cloud(Peter) | 2026-10-09 | `fmt`, `validate`, 정적 검사와 안전한 Plan을 통과한다. |
+| A3 Foundation Code | Cloud(Peter) | 2026-10-09 | NAT를 제외한 VPC·Subnet·Route·SG의 `fmt`, `validate`, 정적 검사와 안전한 Plan을 통과한다. |
 | A4 실행 기반 Code | Cloud(Peter) | 2026-10-12 | IAM/ECR/ALB Plan과 비용 영향을 검토한다. |
 | B1 RDS Rehearsal 설계 | Cloud(Peter), BE 협의 | 2026-10-14 | Data 검증·중단·Rollback Runbook이 있다. |
 | B2 ECS Develop 기동 | Cloud(Peter) | 2026-10-16 | 두 AZ Task, Health와 실패 배포 Rollback을 검증한다. |
@@ -92,12 +94,13 @@ Redis, Queue, 신규 AI Database와 추가 V1 한계 시험은 위 경로를 막
 |---|---|
 | V1 전체 한계 시험을 다시 끝낸 뒤 V2 착수 | 현재 V2 구조·관측이 없어 V2 용량 결정을 확정할 수 없고 Critical Path를 지연시킨다. |
 | 600 RPS를 V2 초기 용량 보장값으로 사용 | 실제 Workload, 쓰기 비율과 Scale-out 시간이 검증되지 않았다. |
-| Redis·Queue·AI DB를 모두 선구축 | Application 요구와 운영 책임이 확정되지 않아 비용과 장애 범위를 불필요하게 늘린다. |
+| Redis·Queue와 AI DB를 모두 A3에서 선구축 | AI 기능은 V2 범위지만 Application 계약과 데이터 복구 책임이 확정되지 않아 Foundation 단계에서 Runtime·DB까지 만들면 비용과 장애 범위를 불필요하게 늘린다. |
 | RTO·RPO를 달성 완료로 표시 | 복원 Drill과 정합성 실측 증거가 아직 없다. |
 
 ## 재검토 조건
 
-- BE 또는 AI Runtime이 Redis, Queue나 PostgreSQL/pgvector 없이는 기동할 수 없음이 확인된다.
+- BE 또는 AI Runtime이 Redis나 Queue 없이는 기동할 수 없음이 확인된다.
+- AI PostgreSQL/pgvector가 재생성 가능한 파생 데이터가 아니라 Source of Truth임이 확인된다.
 - 월 예상 비용이 300,000원을 넘고 추가 비용의 승인 근거가 없다.
 - RDS 복원 또는 ECS Rollback Drill이 초기 RTO·RPO를 반복해서 초과한다.
 - V2 비교 시험에서 기존 잠정 SLO가 사용자 요구 또는 실제 분포와 맞지 않는다.

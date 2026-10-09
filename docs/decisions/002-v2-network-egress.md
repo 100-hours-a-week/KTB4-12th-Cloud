@@ -1,8 +1,18 @@
 # ADR-002: V2 Private Network Egress 전략
 
-- 상태: 승인
+- 상태: 재검토 중
 - 결정일: 2026-10-06
+- 재검토일: 2026-10-09
 - 범위: V2 Develop·Production VPC의 외부 및 AWS Service 접근 경로
+
+## 2026-10-09 재검토 경계
+
+- Foundation은 VPC, Public/App/Data Subnet, Internet Gateway, 계층별 Route Table, S3 Gateway
+  Endpoint와 Security Group까지만 구성한다.
+- NAT Gateway, NAT Instance, App Subnet의 Internet Default Route는 Foundation Apply 범위에서 제외한다.
+- AI Runtime의 외부 API 호출, ECS/ECR/Logs/Secrets/SSM Endpoint 수와 비용을 확인한 뒤 Egress Root 또는
+  Module로 분리한다.
+- 아래 결정은 2026-10-06 기준안이며 재검토가 끝날 때까지 Apply 근거로 사용하지 않는다.
 
 ## 결정
 

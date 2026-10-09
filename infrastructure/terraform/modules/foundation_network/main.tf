@@ -27,6 +27,15 @@ locals {
       }
     },
   )
+
+  # 모든 Internet Default Route를 이 Map에서만 생성해 Data Tier가 실수로 포함되는지 Plan에서 검사한다.
+  default_routes = {
+    public = {
+      tier           = "public"
+      route_table_id = aws_route_table.public.id
+      gateway_id     = aws_internet_gateway.this.id
+    }
+  }
 }
 
 resource "aws_vpc" "this" {
@@ -61,28 +70,6 @@ resource "aws_subnet" "this" {
   }
 }
 
-resource "aws_eip" "nat" {
-  domain = "vpc"
-
-  tags = {
-    Name = "${var.name_prefix}-nat-a-eip"
-  }
-
-  depends_on = [aws_internet_gateway.this]
-}
-
-# Develop은 비용 절충으로 NAT Gateway 하나를 공유한다. Production은 AZ별 NAT로 별도 구현한다.
-resource "aws_nat_gateway" "this" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.this["public-a"].id
-
-  tags = {
-    Name = "${var.name_prefix}-nat-a"
-  }
-
-  depends_on = [aws_internet_gateway.this]
-}
-
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.this.id
 
@@ -90,12 +77,6 @@ resource "aws_route_table" "public" {
     Name = "${var.name_prefix}-public-rt"
     Tier = "public"
   }
-}
-
-resource "aws_route" "public_internet" {
-  route_table_id         = aws_route_table.public.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.this.id
 }
 
 resource "aws_route_table_association" "public" {
@@ -116,12 +97,12 @@ resource "aws_route_table" "app" {
   }
 }
 
-resource "aws_route" "app_internet" {
-  for_each = aws_route_table.app
+resource "aws_route" "default" {
+  for_each = local.default_routes
 
-  route_table_id         = each.value.id
+  route_table_id         = each.value.route_table_id
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.this.id
+  gateway_id             = each.value.gateway_id
 }
 
 resource "aws_route_table_association" "app" {
@@ -272,10 +253,8 @@ check "subnet_cidrs_are_unique" {
 check "data_route_tables_have_no_default_route" {
   assert {
     condition = alltrue([
-      for route_table in aws_route_table.data : alltrue([
-        for route in route_table.route : try(route.cidr_block, null) != "0.0.0.0/0"
-      ])
+      for route in local.default_routes : route.tier != "data"
     ])
-    error_message = "Data Route Table에는 0.0.0.0/0 Internet Route를 둘 수 없습니다."
+    error_message = "Default Route 선언에는 Data Tier를 포함할 수 없습니다."
   }
 }
