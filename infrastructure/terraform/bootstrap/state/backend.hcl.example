@@ -1,0 +1,9 @@
+# State Bucket을 최초 Apply한 뒤 Local Bootstrap State를 이 위치로 이전할 때 사용한다.
+bucket       = "YOUR_TERRAFORM_STATE_BUCKET"
+key          = "bootstrap/state/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+
+# Mac에서는 Profile을 사용하고, GitHub Actions에서는 이 줄을 제외한 별도 Backend 설정을 쓴다.
+profile = "YOUR_AWS_PROFILE"

@@ -1,0 +1,12 @@
+# 실제 Account ID와 Local Profile은 Commit하지 않고 이 예시를 복사한 terraform.tfvars에만 입력한다.
+aws_account_id = "000000000000"
+
+# Mac에서만 AWS CLI Profile을 지정한다. CI에서는 이 값을 null로 두고 OIDC Role을 사용한다.
+aws_profile = "YOUR_AWS_PROFILE"
+
+# 기본값을 사용하면 seonjalal-terraform-state-<account-id>-ap-northeast-2로 계산된다.
+state_bucket_name = null
+
+additional_tags = {
+  CostCenter = "ktb4-12th"
+}
