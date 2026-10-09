@@ -10,11 +10,54 @@ release.candidate.env
 certbot/conf/
 *.log
 .DS_Store
+__pycache__/
+*.pyc
 
 # Local-only project notes and generated load-test reports.
-# Only the repository README and GitHub PR template are committed Markdown files.
+# 운영 기준 문서와 ADR은 AGENTS.md의 변경 이력 규칙에 따라 예외적으로 추적합니다.
 docs/
 *.md
 !/README.md
 !/.github/pull_request_template.md
+# 추적할 운영 기준 문서는 광범위한 Markdown Ignore 규칙 뒤에서 다시 허용합니다.
+!/docs/
+/docs/*
+!/docs/CURRENT_STATUS.md
+!/docs/PROJECT_CONTEXT.md
+!/docs/ARCHITECTURE.md
+!/docs/V2_IMPLEMENTATION_PLAN.md
+!/docs/2026-10-06-v2-aws-inventory-and-terraform-bootstrap.md
+!/docs/2026-10-07-v1-alerting-activation-and-state-migration.md
+!/docs/decisions/
+/docs/decisions/*
+!/docs/decisions/001-v2-infrastructure.md
+!/docs/decisions/002-v2-network-egress.md
+!/docs/decisions/003-v2-scope-reliability-budget.md
+# GitHub Wiki에 게시할 원고는 본 저장소에서도 변경 이력을 관리합니다.
+!/wiki/
+!/wiki/*.md
+!/operations/alerting/README.md
 load-tests/results/
+load-tests/secrets/
+
+# Terraform의 로컬 상태와 실제 환경 입력값에는 리소스 정보나 Secret 참조가 포함될 수 있습니다.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+*.tfvars
+!*.tfvars.example
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+credentials.tfrc.json
+# 실제 Backend 설정은 Local Profile과 환경별 State 위치를 포함하므로 예시만 Commit합니다.
+**/backend.hcl
+!**/backend.hcl.example
+operations/alerting/terraform/discord-alert.zip
