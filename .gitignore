@@ -28,11 +28,14 @@ docs/
 !/docs/V2_IMPLEMENTATION_PLAN.md
 !/docs/2026-10-06-v2-aws-inventory-and-terraform-bootstrap.md
 !/docs/2026-10-07-v1-alerting-activation-and-state-migration.md
+!/docs/2026-10-11-v2-develop-continuous-deployment.md
+!/docs/2026-10-11-v2-develop-runtime-cicd-final-report.md
 !/docs/decisions/
 /docs/decisions/*
 !/docs/decisions/001-v2-infrastructure.md
 !/docs/decisions/002-v2-network-egress.md
 !/docs/decisions/003-v2-scope-reliability-budget.md
+!/docs/decisions/004-develop-runtime-access.md
 # GitHub Wiki에 게시할 원고는 본 저장소에서도 변경 이력을 관리합니다.
 !/wiki/
 !/wiki/*.md

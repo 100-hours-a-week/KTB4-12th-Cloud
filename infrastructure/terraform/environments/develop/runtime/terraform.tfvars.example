@@ -1,0 +1,16 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+
+foundation_state_bucket = "YOUR_TERRAFORM_STATE_BUCKET"
+foundation_state_key    = "v2/develop/foundation/terraform.tfstate"
+
+# FE, BE와 MySQL 기준 시작값이다. AI의 2 vCPU/4 GiB 요구를 함께 수용하기 전에 다시 산정한다.
+instance_type              = "t3.medium"
+root_volume_size_gib       = 30
+product_image_bucket_name = "YOUR_DEVELOP_PRODUCT_IMAGE_BUCKET"
+
+# 최초 Parameter 생성값이다. 이후 FE·BE develop CI가 각 값을 갱신한다.
+initial_frontend_sha = "0000000000000000000000000000000000000000"
+initial_backend_sha  = "0000000000000000000000000000000000000000"
+
+additional_tags = {}
