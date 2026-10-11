@@ -1,0 +1,9 @@
+# 이 Bucket은 실제 Terraform apply보다 먼저 별도 Bootstrap 절차로 생성해야 한다.
+bucket       = "replace-with-terraform-state-bucket"
+key          = "seonjalal/production/alerting/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+
+# Mac에서는 Production IAM 사용자로 인증된 전용 Profile을 사용한다.
+profile = "YOUR_AWS_PROFILE"

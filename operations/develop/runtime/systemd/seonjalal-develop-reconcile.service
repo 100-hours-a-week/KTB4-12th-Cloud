@@ -1,0 +1,18 @@
+[Unit]
+Description=Reconcile Seonjalal Develop runtime with desired FE and BE images
+Wants=network-online.target docker.service amazon-ssm-agent.service
+After=network-online.target docker.service amazon-ssm-agent.service
+ConditionPathExists=/opt/seonjalal-develop/scripts/reconcile.sh
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=docker
+ExecStart=/opt/seonjalal-develop/scripts/reconcile.sh /opt/seonjalal-develop
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

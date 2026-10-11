@@ -1,0 +1,8 @@
+bucket       = "YOUR_TERRAFORM_STATE_BUCKET"
+key          = "v2/develop/runtime/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+
+# Mac에서는 Profile을 사용하고 GitHub Actions에서는 이 줄을 제외한 별도 Backend 설정을 쓴다.
+profile = "YOUR_AWS_PROFILE"
