@@ -10,9 +10,20 @@ COMPOSE_ARGS=(
   -f compose.yaml
 )
 
-if [[ "${MODE}" == "production" ]]; then
-  COMPOSE_ARGS+=(-f compose.production.yaml)
-fi
+case "${MODE}" in
+  local)
+    ;;
+  production)
+    COMPOSE_ARGS+=(-f compose.production.yaml)
+    ;;
+  develop)
+    COMPOSE_ARGS+=(-f compose.develop.yaml)
+    ;;
+  *)
+    echo "Usage: ENV_FILE=<path> $0 [local|develop|production]" >&2
+    exit 2
+    ;;
+esac
 
 echo "[1/4] Validating Docker Compose configuration"
 docker compose "${COMPOSE_ARGS[@]}" config --quiet

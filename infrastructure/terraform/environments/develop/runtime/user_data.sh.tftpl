@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -euxo pipefail
+
+# 이 Script에는 Secret을 넣지 않는다. 실제 Secret과 Image Digest는 SSM 배포 단계에서 주입한다.
+dnf install -y docker yum-utils
+
+# Tailscale 공식 Amazon Linux 2023 Repository를 사용해 Client만 설치한다.
+# Tailnet 인증은 Auth Key가 State와 User Data에 남지 않도록 Apply 후 SSM Session에서 수행한다.
+dnf config-manager --add-repo https://pkgs.tailscale.com/stable/amazon-linux/2023/tailscale.repo
+dnf install -y tailscale
+
+systemctl enable --now docker
+systemctl enable --now amazon-ssm-agent
+systemctl enable --now tailscaled
+
+usermod -aG docker ec2-user
+
+# Application과 재생성 가능한 Develop DB Data의 표준 경로만 준비한다.
+install -d -o ec2-user -g docker -m 0750 /opt/seonjalal-develop
+install -d -o ec2-user -g docker -m 0750 /var/lib/seonjalal-develop/mysql
+
+install -d -o root -g root -m 0755 /etc/seonjalal
+printf '%s\n' '${bootstrap_version}' > /etc/seonjalal/bootstrap-version
+chmod 0644 /etc/seonjalal/bootstrap-version

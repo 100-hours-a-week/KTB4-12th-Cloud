@@ -1,0 +1,12 @@
+# 실제 값은 terraform.tfvars에 작성하고 Git에 Commit하지 않는다.
+aws_account_id = "123456789012"
+aws_region     = "ap-northeast-2"
+environment    = "production"
+ec2_instance_id = "i-0123456789abcdef0"
+
+# Discord Webhook URL 자체가 아니라 Secrets Manager Secret ARN만 입력한다.
+discord_webhook_secret_arn = "arn:aws:secretsmanager:ap-northeast-2:123456789012:secret:seonjalal/production/discord-infra-alert-example"
+
+# 첫 apply와 수동 SNS 시험 전에는 false를 유지한다.
+alarm_actions_enabled = false
+cpu_threshold_percent = 80
