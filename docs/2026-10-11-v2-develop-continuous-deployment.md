@@ -2,7 +2,7 @@
 
 - 작업일: 2026-10-11 KST
 - 대상: FE·BE `develop` Branch, Develop EC2 Runtime
-- 현재 상태: FE·BE `develop` Merge 기반 자동 배포와 실행 Image·Tailnet Browser 최종 검증 완료
+- 현재 상태: Online 자동 배포 검증 완료, EC2 Start 재조정의 Rollback 반복 결함 발견과 임시 안정화 완료
 - 공개 문서 제외 대상: AWS Account ID, EC2 Instance ID, IAM Role ARN, Tailnet Domain
 
 ## 1. 결론
@@ -61,6 +61,7 @@ Repository 전용 GitHub OIDC Deploy Role 수임
 | 잘못된 Image Tag | 40자리 소문자 Full Git SHA 검증과 Immutable ECR Tag 사용 |
 | 서버 중지 중 Merge 유실 | Parameter Store에 희망 SHA 영속 저장, 부팅 서비스에서 재조정 |
 | 신규 Container Health 실패 | 이전 `.env` 복원 후 이전 Candidate 재배포 |
+| Rollback 후 동일 Candidate 반복 | 현재 부팅 전용 `Restart=no`로 임시 차단, 영구 재시도 계약 수정 필요 |
 | GitHub 장기 AWS Key | Repository·Branch가 제한된 OIDC Role 사용 |
 | 과도한 Repository 권한 | FE·BE Role이 자기 Parameter만 Get·Put 가능하도록 분리 |
 | 범용 Shell 명령 실행 | 명령 입력이 없는 전용 SSM Document만 `SendCommand` 허용 |
@@ -116,7 +117,9 @@ Repository 전용 GitHub OIDC Deploy Role 수임
 
 ### 후속 검증
 
-- EC2 중지 중 Merge 후 부팅 재조정 시나리오의 실제 Stop·Merge·Start 통합 검증.
+- EC2 Start 재조정에서 발견된 최신 Candidate Compose Health 실패 원인 규명.
+- Rollback 성공 후 동일 Candidate 자동 재시도 방지와 실패 로그 보존 검증.
+- 현재 부팅 전용 `Restart=no` 제거 전 영구 Unit·Script 수정 반영.
 - GitHub Actions Node.js 20 강제 전환과 Ubuntu Runner Migration 경고 대응.
 - BE `actions/setup-java@v4`를 지원되는 Version으로 갱신.
 - 기존 FE React Hook·Fast Refresh Warning 별도 정리.
@@ -127,16 +130,29 @@ Repository 전용 GitHub OIDC Deploy Role 수임
 |---|---|---|---|
 | 최초 재조정에서 `/run/lock/...: Permission denied` | 전용 SSM Document가 `ec2-user`로 실행되지만 `/run/lock`은 Root 소유 | Lock 파일을 `ec2-user:docker` 소유의 `/opt/seonjalal-develop/.deploy.lock`으로 변경 | `.env` 교체 전 실패로 Container·Data 변경 없음 |
 | Tailscale Ping의 `direct connection not established` | 현재 Network에서 Peer 간 직접 UDP 경로가 성립하지 않아 DERP Tokyo 중계 사용 | 별도 변경 없이 HTTPS와 Backend Health 검증, 필요 시 NAT·UDP 정책 후속 점검 | 기능 영향 없음, 직접 연결 대비 Latency 증가 가능 |
+| EC2 Start 후 정상 화면과 HTTP 502 반복 | 최신 Candidate Compose Health 실패, Rollback 성공 후 실패 코드 반환, systemd `Restart=on-failure` 재실행 | 현재 부팅 전용 `Restart=no` Drop-in과 이전 Candidate 안정화 | 최신 Candidate 미적용, 재부팅 전 영구 수정 필요 |
+| 팀원 MagicDNS 이름 해석 실패 | Tailnet 로그인 후에도 장치가 `Needs approval` 상태 | 예상 장치 승인과 HTTPS 443 전용 Grant 적용 | 승인 전 장치의 Tailnet DNS·Data Plane 차단 확인 |
 
 ## 8. Rollback 원칙
 
 - 배포 단계 실패: `reconcile.sh`의 이전 `.env`와 이전 Container 조합 자동 복구.
+- Rollback 성공 후 재시도: 동일 Candidate 반복으로 가용성을 다시 깨뜨리지 않도록 제한된 재시도 또는 중단·알림 계약 필요.
 - GitHub Job 실패: 해당 Repository가 갱신한 희망 SHA를 직전 값으로 복구.
 - Workflow 문제: `deploy-develop` Job 제거 또는 비활성화, 기존 수동 SSM 배포 경로 사용.
 - IAM 문제: Application Workflow 중단 후 Terraform에서 Deploy Role·Policy 제거 Plan 별도 검토.
 - Parameter 제거: Workflow 중단과 Runtime Unit 비활성화 이후 별도 Terraform Plan으로 수행.
 
-## 9. 공식 근거
+## 9. EC2 Start 통합 시험 결과 정정
+
+- Parameter Store 희망 SHA 조회와 신규 Candidate 적용 시도 확인.
+- 최신 Candidate의 `docker compose up --wait` 단계 실패 확인.
+- 이전 `.env`와 Container 조합 Rollback 및 Runtime 검증 성공 확인.
+- Rollback 성공 후 systemd 자동 재시도로 정상 상태가 반복 중단되는 결함 확인.
+- 현재 Runtime은 이전 정상 Candidate로 서비스 가능 상태.
+- 최신 희망 Candidate의 부팅 자동 적용 완료 주장은 철회, 영구 수정 후 재검증 예정.
+- 상세 기록: `docs/2026-10-12-v2-develop-boot-reconcile-rollback-loop.md`
+
+## 10. 공식 근거
 
 - [GitHub Actions Workflow](https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows)
 - [GitHub Actions Concurrency](https://docs.github.com/en/actions/concepts/workflows-and-actions/concurrency)

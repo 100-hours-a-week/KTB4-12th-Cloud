@@ -1,5 +1,72 @@
 # 현재 작업 상태
 
+## 2026-10-12 V2 Develop 팀원 Tailscale 접속 가이드 작성
+
+### 완료한 작업
+
+- Cloud 담당자와 일반 팀원의 절차를 분리한 V2 Develop Tailscale 접속 가이드 추가.
+- Tailscale 설치, 초대 수락, Device Approval, MagicDNS HTTPS 접속과 정상 판정 기준 정리.
+- Tailscale IP·MagicDNS·사용자 초대·장치 승인·Grant의 역할 차이 설명.
+- EC2 중지, 잘못된 계정, 승인 대기, DNS 오류, 인증서 경고, HTTP 502·503과 DERP 경로의 장애 구분 추가.
+- 접속 문제 전달 양식, Offboarding 절차와 팀 공유용 짧은 안내문 추가.
+- Public IP, SSH, Funnel과 Tailscale IP 직접 접속을 제외한 근거 기록.
+
+### 검증한 항목
+
+- 현재 V2 Develop의 Tailscale Serve HTTPS, Loopback Bind와 Public Ingress 0개 구조 반영.
+- 현재 기록에 남아 있는 팀원 초대 전 Tag·Grant 최소 권한 작업을 관리자 사전 조건으로 명시.
+- 실제 Tailnet Domain, Tailscale IP, AWS Resource ID와 Secret 미기록.
+- Tailscale 공식 사용자 초대, Device Approval, Grants, Tags, MagicDNS와 Serve 문서 연결.
+
+### 남은 문제
+
+- 실제 Tailnet의 `group:developers`, `tag:develop-runtime`과 TCP 443 전용 Grant 적용 필요.
+- Develop Runtime 장치 Tag 적용 후 기존 관리자 접근과 HTTPS 정책 검증 필요.
+- 팀원별 초대·장치 승인과 실제 Browser 접속 검증 필요.
+
+### 다음 작업
+
+1. 현재 Tailnet Policy 백업과 기본 전체 허용 규칙 영향 범위 검토.
+2. Develop Runtime Tag·HTTPS 443 전용 Grant 변경안 작성과 관리자 승인.
+3. 정책 적용 후 팀원 초대·장치 승인·Browser 접속 순차 검증.
+
+### 가이드 문서
+
+- `docs/guides/v2-develop-tailscale-access-guide.md`
+
+## 2026-10-11 V1 출시 이후 V2 Develop CI/CD 전체 회고 문서화
+
+### 완료한 작업
+
+- V1 최초 운영 배포부터 V2 Develop 자동 배포 최종 검증까지의 작업을 시간순으로 통합 정리.
+- 각 단계의 목적, 선택 근거, 제외 대안, 변경 내용과 검증 결과 기록.
+- SSH·OIDC·SSM·Docker Compose·부하 시험·Alerting·Terraform State·V2 Network·Tailscale·ECR·Secrets Manager·자동 Rollback의 연결 관계 설명.
+- 작업 중 발생한 사소한 Shell·Clipboard·Toolchain·권한·경로·인용 오류까지 원인·해결·재발 방지 관점으로 기록.
+- Account ID, Resource ID, IP, ARN, Tailnet Domain, Secret과 인증 Challenge 원문 제외.
+
+### 검증한 항목
+
+- 기존 세부 작업 기록과 최종 Runtime·CI/CD 문서의 시점·상태 교차 확인.
+- Develop Continuous Deployment 최종 상태와 Production Continuous Delivery 유지 경계 반영.
+- 완료 범위와 후속 과제를 분리하고 공식 근거 Link 포함.
+- Notion에 그대로 복사할 수 있는 Markdown 구조 적용.
+
+### 남은 문제
+
+- Tailnet 팀원 초대 전 Tag·Grant 최소 권한 적용 필요.
+- EC2 Offline 상태의 Merge 후 Boot Reconcile 실제 통합 시험 필요.
+- GitHub Actions Runtime Warning, Production ECR 전환, AI Runtime과 V2 관측 확장 필요.
+
+### 다음 작업
+
+1. 신규 통합 문서의 Notion 공유와 팀 검토.
+2. Tailnet Team Access Policy와 참여 Guide 확정.
+3. 별도 시험 Window에서 Offline Reconcile End-to-end 검증.
+
+### 상세 문서
+
+- `docs/2026-10-11-v1-release-to-v2-develop-cicd-worklog.md`
+
 ## 2026-10-11 V2 Develop Continuous Deployment 구축·최종 검증 완료
 
 ### 결론
@@ -2271,3 +2338,61 @@ Rollback 가능 여부 확인 → 증거 저장`을 완료한 뒤 다음 Product
 ### 가이드 문서
 
 - `docs/guides/manual-semantic-versioning-guide.md`
+
+## 2026-10-12 V2 Develop 팀 접근과 부팅 재조정 안정화
+
+### 완료한 작업
+
+- Tailscale 기본 전체 허용 Rule 제거와 Develop Tailnet IP의 TCP 443 전용 Grant 적용.
+- 팀원 Tailnet 초대, 사용자 참여와 Machine 장치 승인 절차 확인.
+- V2 Develop EC2 Start와 Tailscale Machine 재연결 확인.
+- MagicDNS HTTPS를 통한 관리자 Browser 접속과 주요 기능 동작 확인.
+- 부팅 재조정 중 최신 Candidate 실패와 이전 Candidate 자동 Rollback 확인.
+- Rollback 이후 systemd 자동 재시도로 발생한 정상 화면·HTTP 502 반복 원인 확인.
+- 현재 부팅 세션 전용 systemd Drop-in의 `Restart=no` 적용과 반복 재시도 중단.
+- 이전 정상 Candidate의 Frontend·Main Backend·Payment Server·MySQL 안정화.
+- 전용 트러블슈팅 기록과 기존 CI/CD 최종 보고서·설계 문서 정정.
+
+### 검증한 항목
+
+- Tailnet 접근 범위가 승인된 장치에서 Develop 서버 TCP 443으로 제한됨을 확인.
+- Tailscale Serve의 Loopback Proxy 대상 `127.0.0.1:8080` 유지 확인.
+- 반복 배포 중 `NRestarts=10`, Rollback 성공과 systemd 실패 코드 반환 확인.
+- 임시 안정화 후 `Restart=no`와 추가 재시도 없음 확인.
+- Rollback된 이전 Candidate의 네 Container `healthy` 확인.
+- Frontend Loopback 응답과 Backend Proxy Health `UP` 확인.
+- 관리자 Browser의 화면과 주요 서비스 기능 정상 확인.
+
+### 확인된 문제
+
+- 최신 희망 Candidate가 `docker compose up --wait` 단계에서 실패.
+- Rollback 전에 실패 Container 상태와 로그를 보존하지 않아 정확한 실패 서비스·애플리케이션 원인 미확정.
+- Rollback 성공 후 `reconcile.sh`의 원래 실패 코드와 systemd `Restart=on-failure` 결합에 따른 동일 Candidate 반복.
+- systemd 작업 상태는 `failed`이지만 이전 Candidate Runtime은 정상인 상태 표현 불일치.
+- 현재 `Restart=no`는 `/run` 기반 임시 설정으로 EC2 재부팅 시 소멸.
+- 최신 Develop 희망 SHA가 현재 Runtime에 적용되지 않은 상태.
+- 팀원 전원의 장치 승인 후 MagicDNS HTTPS End-to-End 결과 미확인.
+
+### 현재 운영 상태
+
+| 항목 | 상태 |
+|---|---|
+| Develop Runtime | 이전 정상 Candidate로 서비스 가능 |
+| 관리자 기능 검증 | 정상 |
+| Tailnet 접근 정책 | 승인 장치 → Develop HTTPS 443만 허용 |
+| 최신 Candidate | 배포 실패·미적용 |
+| 자동 재시도 | 현재 부팅에서 임시 차단 |
+| EC2 재부팅 | 영구 수정 전 반복 배포 재발 위험 |
+
+### 다음 작업
+
+1. Rollback 전 Compose 상태·Health Log·Exit Code·OOM·제한된 Service Log 보존 추가.
+2. Rollback 성공 후 동일 Candidate의 무한 재시도 방지 계약 확정.
+3. 최신 Candidate 단일 재현과 실제 실패 Container·원인 규명.
+4. systemd Unit과 배포 Script의 영구 수정 후 EC2 Start 재조정 재검증.
+5. 팀원 전원 장치 승인과 MagicDNS HTTPS 접속 결과 확인.
+6. GitHub Issue `fix: Develop 부팅 재조정 실패 후 Rollback 반복 방지` 등록.
+
+### 상세 기록
+
+- `docs/2026-10-12-v2-develop-boot-reconcile-rollback-loop.md`
