@@ -2,7 +2,7 @@
 
 - 작업일: 2026-10-10~2026-10-11 KST
 - 범위: V1 Benchmark 보존, V2 Develop Runtime, Tailscale 접근, FE·BE ECR CI와 자동 배포 CD
-- 최종 상태: FE·BE `develop` Merge부터 Tailnet Browser 화면까지 End-to-End 검증 완료
+- 최종 상태: Runtime·Tailnet 접근 구축 완료, 이전 정상 Candidate 서비스 안정화, 부팅 재조정 반복 결함 후속 수정 필요
 - 공개 문서 제외 대상: AWS Account ID, Instance ID, IAM Role ARN, Public IP, Tailnet Domain, Secret 원문
 
 ## 1. 최종 결과
@@ -17,8 +17,8 @@
 | Develop CI | FE Image 1개, BE Main·Payment Image 2개 자동 발행 |
 | Develop CD | 각 Repository의 `develop` Merge 성공 후 Develop EC2 자동 배포 |
 | 실패 대응 | Health 실패 시 이전 `.env`와 Container 조합 복구 |
-| 서버 중지 대응 | Parameter Store에 희망 SHA 보존, 다음 부팅 시 systemd 재조정 |
-| 최종 검증 | Merge SHA·Parameter·실행 Image·Health·Tailnet HTTPS·Browser 화면 일치 확인 |
+| 서버 중지 대응 | Parameter Store 희망 SHA 보존 확인, 실제 다음 부팅 재조정에서 실패·Rollback 반복 결함 발견 |
+| 최종 검증 | 이전 정상 Candidate의 네 Container Health·Tailnet HTTPS·Browser 주요 기능 확인 |
 
 ## 2. 최종 구조
 
@@ -163,6 +163,10 @@ Production은 위 흐름과 분리해 Cloud Repository의 명시적 승인 기�
 | DNS Challenge 값 비교 실패 | Clipboard에 Certbot 안내문까지 포함 | Challenge 한 줄만 보이지 않게 입력하고 43자 계약 검사 | TXT 응답과 정확히 일치 |
 | 최초 재조정 실패 | `ec2-user`가 `/run/lock`에 Lock 생성 불가 | Lock을 `/opt/seonjalal-develop/.deploy.lock`으로 이동 | 재조정·Health·Rollback 경로 성공 |
 | Tailscale 직접 연결 미수립 | 현재 NAT·UDP 경로에서 Peer 직접 연결 실패 | DERP Relay 사용 유지 | HTTPS와 Backend Health 정상 |
+| 팀원 MagicDNS 이름 해석 실패 | 팀원 장치가 Tailnet에 로그인했지만 `Needs approval` 상태 | 예상된 팀원 장치 승인과 HTTPS 443 전용 Grant 유지 | 승인 전 DNS 차단과 관리자 장치 접근 분리 확인 |
+| EC2 Start 직후 HTTP 502 | 부팅 재조정 중 Frontend가 아직 생성되지 않아 Serve Upstream 부재 | 재조정 진행 상태와 Loopback 응답 확인 | Backend 이후 Frontend 시작과 일시 HTTP 200 확인 |
+| 정상 화면과 502 반복 | 최신 Candidate의 Compose Health 실패 후 Rollback, 실패 코드에 대한 systemd 자동 재시도 반복 | 현재 부팅 전용 `Restart=no` Drop-in 적용과 마지막 Rollback 완료 대기 | `NRestarts=10` 고정, 이전 Candidate 네 Container Healthy와 주요 기능 정상 |
+| runtime mask 미적용 | `/etc/systemd/system`의 실제 Unit이 유지되고 `is-enabled`가 `enabled` 반환 | `/run/systemd/system/...service.d`의 runtime Drop-in으로 Restart 속성 변경 | `Restart=no` 확인 |
 
 ## 7. 최종 검증 증거
 
@@ -176,18 +180,33 @@ Production은 위 흐름과 분리해 Cloud Repository의 명시적 승인 기�
 - Runtime 임시 Secret 파일과 ECR Login Credential 제거 확인.
 - 승인된 Mac의 Tailscale Browser 화면 확인.
 
+### 2026-10-12 EC2 Stop·Start 후 추가 검증
+
+- Develop EC2 Start와 Tailscale Machine 재연결 확인.
+- HTTPS 443 전용 Tailnet Grant와 관리자 Browser 접근 확인.
+- 최신 희망 Candidate의 `docker compose up --wait` 실패 확인.
+- 이전 정상 Candidate Rollback과 네 Container Health 확인.
+- Frontend Loopback, Backend Proxy Health와 관리자 주요 기능 정상 확인.
+- Rollback 이후 `Restart=on-failure`에 의한 반복 배포 10회 확인.
+- 현재 부팅 전용 `Restart=no` 적용과 반복 중단 확인.
+- 최신 Candidate와 Parameter Store 희망 SHA의 End-to-End 적용은 미완료 상태로 정정.
+
 ## 8. 남은 작업
 
 | 우선순위 | 작업 | 현재 영향 |
 |---:|---|---|
-| 1 | 팀원 초대 전 Tailscale Tag·Grant를 Develop HTTPS 443으로 제한 | 현재 기본 Tailnet 정책 범위 검토 필요 |
-| 2 | EC2 Stop 중 Merge 후 Start 재조정 실제 통합 시험 | Online 자동 배포는 완료, Offline 복구 설계만 미실증 |
-| 3 | GitHub Actions Node.js·Runner·`setup-java` 경고 정리 | 현재 Workflow 성공, 향후 호환성 위험 |
-| 4 | `main` Production Image의 Docker Hub → ECR 이전 | Develop은 ECR 완료, Production은 기존 경로 유지 |
-| 5 | AI Dockerfile·CI·Runtime 연결 | AI 기능 미포함 |
-| 6 | Docker Compose 설치 Bootstrap 코드화 | EC2 재생성 자동화 완성도 영향 |
-| 7 | V1 Benchmark DNS 갱신·인증서 갱신 Runbook | V1 시험 운영 편의성 영향 |
-| 8 | PLG 관측과 부하 시험 | V2 성능 비교 증거 수집 필요 |
+| 1 | 부팅 재조정 실패 로그 보존과 Rollback 후 반복 재시도 방지 | 재부팅 시 정상 화면과 502 반복 재발 가능 |
+| 2 | 최신 희망 Candidate의 실제 실패 Container·원인 규명 | 현재 이전 정상 Candidate 사용 중 |
+| 3 | 팀원 전원 장치 승인과 MagicDNS HTTPS End-to-End 확인 | 관리자 장치 기능 확인만 완료 |
+| 4 | 현재 부팅 전용 `Restart=no`를 영구 코드 수정으로 대체 | `/run` 설정은 재부팅 시 소멸 |
+| 5 | GitHub Actions Node.js·Runner·`setup-java` 경고 정리 | 현재 Workflow 성공, 향후 호환성 위험 |
+| 6 | `main` Production Image의 Docker Hub → ECR 이전 | Develop은 ECR 완료, Production은 기존 경로 유지 |
+| 7 | AI Dockerfile·CI·Runtime 연결 | AI 기능 미포함 |
+| 8 | Docker Compose 설치 Bootstrap 코드화 | EC2 재생성 자동화 완성도 영향 |
+| 9 | V1 Benchmark DNS 갱신·인증서 갱신 Runbook | V1 시험 운영 편의성 영향 |
+| 10 | PLG 관측과 부하 시험 | V2 성능 비교 증거 수집 필요 |
+
+상세 장애 기록: `docs/2026-10-12-v2-develop-boot-reconcile-rollback-loop.md`
 
 ## 9. 공식 근거
 

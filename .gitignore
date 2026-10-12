@@ -30,6 +30,11 @@ docs/
 !/docs/2026-10-07-v1-alerting-activation-and-state-migration.md
 !/docs/2026-10-11-v2-develop-continuous-deployment.md
 !/docs/2026-10-11-v2-develop-runtime-cicd-final-report.md
+!/docs/2026-10-11-v1-release-to-v2-develop-cicd-worklog.md
+!/docs/2026-10-12-v2-develop-boot-reconcile-rollback-loop.md
+!/docs/guides/
+/docs/guides/*
+!/docs/guides/v2-develop-tailscale-access-guide.md
 !/docs/decisions/
 /docs/decisions/*
 !/docs/decisions/001-v2-infrastructure.md
