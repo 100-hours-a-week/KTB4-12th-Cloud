@@ -24,6 +24,10 @@
 
 ## 브랜치별 의미
 
+V2의 ECR 릴리스·ECS/S3 배포 실행 조건과 GitHub Environment 설정은
+[V2 릴리스 실행 안내](operations/v2-release/README.md)를 참고하세요.
+기존 V1 수동 배포와 V2 Delivery는 별도 workflow이며, V2 코드를 추가했다고 운영 전환이 수행되지는 않습니다.
+
 | 브랜치 | 의미 |
 |---|---|
 | `main` | 운영에 반영할 수 있는 안정된 코드와 설정을 관리합니다. |

@@ -1,0 +1,7 @@
+# 실제 State Bucket과 작업 Profile로 교체한 backend.hcl은 로컬에서만 보관.
+bucket       = "REPLACE_WITH_TERRAFORM_STATE_BUCKET"
+key          = "v2/shared/release-delivery/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
+profile      = "REPLACE_WITH_AWS_PROFILE"

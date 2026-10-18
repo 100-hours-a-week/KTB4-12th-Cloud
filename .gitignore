@@ -45,6 +45,7 @@ docs/
 !/wiki/
 !/wiki/*.md
 !/operations/alerting/README.md
+!/operations/v2-release/README.md
 load-tests/results/
 load-tests/secrets/
 
