@@ -24,7 +24,7 @@
 
 ## 브랜치별 의미
 
-V2의 ECR 릴리스·ECS/S3 배포 실행 조건과 GitHub Environment 설정은
+V2 BE의 ECR·ECS 배포 조건과 FE 레포의 S3·CloudFront 배포 설정은
 [V2 릴리스 실행 안내](operations/v2-release/README.md)를 참고하세요.
 기존 V1 수동 배포와 V2 Delivery는 별도 workflow이며, V2 코드를 추가했다고 운영 전환이 수행되지는 않습니다.
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""V2 수동 Delivery: ECR Digest 고정→ECS Service 갱신/S3 정적 배포. 기본은 읽기 검증만."""
+"""V2 BE Delivery: ECR Digest 고정→ECS Service 갱신. 기본은 읽기 검증만."""
 import argparse
 import copy
-import hashlib
 import json
-import mimetypes
 import os
 from pathlib import Path
 import re
@@ -15,8 +13,7 @@ import tempfile
 ACCOUNT = "721744297924"
 REGION = "ap-northeast-2"
 REGISTRY = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com"
-BUCKET = f"seonjalal-v2-frontend-{ACCOUNT}-{REGION}"
-MUTATIONS = {"register-task-definition", "update-service", "put-object", "create-invalidation"}
+MUTATIONS = {"register-task-definition", "update-service"}
 TASK_KEYS = ("family", "taskRoleArn", "executionRoleArn", "networkMode", "containerDefinitions", "volumes",
              "placementConstraints", "requiresCompatibilities", "cpu", "memory", "pidMode", "ipcMode",
              "proxyConfiguration", "inferenceAccelerators", "ephemeralStorage", "runtimePlatform", "enableFaultInjection")
@@ -182,201 +179,52 @@ def rollback_backend(api, attempted):
         stable_at(api, plan, plan["previous"])
 
 
-def validate_site(site):
-    files = sorted(site.rglob("*"))
-    require(all(not item.is_symlink() for item in files), "정적 산출물 symlink 금지")
-    files = [item for item in files if item.is_file()]
-    require((site / "index.html").is_file() and 0 < len(files) <= 2000, "정적 index/파일 수 확인 필요")
-    require(sum(item.stat().st_size for item in files) <= 100 * 1024**2, "정적 파일 크기 상한 초과")
-    for path in files:
-        relative = path.relative_to(site).as_posix()
-        require(bool(re.fullmatch(r"[A-Za-z0-9_./@-]+", relative)) and
-                not any(part.startswith(".") for part in path.relative_to(site).parts), "숨김파일/허용외 경로 금지")
-        require(path.suffix != ".map", "공개 source map 배포 금지")
-        require(path.suffix != ".html" or relative == "index.html", "현재 Delivery는 단일 SPA index만 지원")
-    return files
-
-
-def get_object(api, bucket, key, destination):
-    try:
-        return api("s3api", "get-object", "--bucket", bucket, "--key", key, str(destination))
-    except AwsError as error:
-        if error.code in ("NoSuchKey", "404"):
-            return None
-        raise
-
-
-def prepare_frontend(api, env, release, directory):
-    version(release)
-    bucket = os.environ.get("V2_FRONTEND_BUCKET", "")
-    distribution = os.environ.get("V2_CLOUDFRONT_DISTRIBUTION_ID", "")
-    require(bucket == BUCKET and bool(re.fullmatch(r"[A-Z0-9]{8,32}", distribution)), "FE 버킷/CloudFront 환경 설정 필요")
-    prefix = f"frontend/{env}/"
-    access = api("s3api", "get-public-access-block", "--bucket", bucket)["PublicAccessBlockConfiguration"]
-    require(all(access.get(key) is True for key in ("BlockPublicAcls", "IgnorePublicAcls", "BlockPublicPolicy", "RestrictPublicBuckets")),
-            "공유 S3 공개 접근 차단 유지 필요")
-    require(api("s3api", "get-bucket-versioning", "--bucket", bucket).get("Status") == "Enabled", "S3 버전 관리 필요")
-    distro = api("cloudfront", "get-distribution", "--id", distribution)["Distribution"]
-    config = distro["DistributionConfig"]
-    require(config.get("Enabled") and distro.get("Status") == "Deployed", "CloudFront 배포 완료 필요")
-    origins = config.get("Origins", {}).get("Items", [])
-    expected_domain = bucket + f".s3.{REGION}.amazonaws.com"
-    origin = next((item for item in origins if item.get("DomainName") == expected_domain and item.get("OriginPath") == "/" + prefix.rstrip("/")), None)
-    require(origin and origin.get("OriginAccessControlId"), "환경 prefix 전용 S3 OAC 원본 필요")
-    require(config.get("DefaultCacheBehavior", {}).get("TargetOriginId") == origin["Id"], "기본 원본 prefix 불일치")
-    if env == "production":
-        # FE는 /api 상대주소로빌드됨. 정적S3원본만준비하고운영화면완료로오인하지않음.
-        require(any(item.get("PathPattern") in ("/api/*", "/api*") and item.get("TargetOriginId") != origin["Id"]
-                    and "POST" in item.get("AllowedMethods", {}).get("Items", [])
-                    for item in config.get("CacheBehaviors", {}).get("Items", [])),
-                "운영CloudFront의/api→Backend원본라우팅이먼저필요")
-    policy = json.loads(api("s3api", "get-bucket-policy", "--bucket", bucket)["Policy"])
-    arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/{distribution}"
-    require(any(item.get("Effect") == "Allow" and item.get("Principal") == {"Service": "cloudfront.amazonaws.com"}
-                and item.get("Action") == "s3:GetObject" and item.get("Resource") == f"arn:aws:s3:::{bucket}/{prefix}*"
-                and item.get("Condition", {}).get("StringEquals", {}).get("AWS:SourceArn") == arn
-                for item in policy.get("Statement", [])), "해당 환경 CloudFront만 읽는 버킷 정책 필요")
-    uri = image(api, "seonjalal/production/frontend", release)
-    command(["docker", "pull", "--platform", "linux/amd64", uri])
-    container = command(["docker", "create", "--platform", "linux/amd64", uri])
-    require(bool(re.fullmatch(r"[0-9a-f]{64}", container)), "추출용 컨테이너 식별자 불일치")
-    site = directory / "site"
-    site.mkdir(mode=0o700)
-    try:
-        command(["docker", "cp", container + ":/usr/share/nginx/html/.", str(site)])
-    finally:
-        command(["docker", "rm", container])
-    files = validate_site(site)
-    previous = directory / "previous-index.html"
-    metadata = get_object(api, bucket, prefix + "index.html", previous)
-    # assets는 기존 파일과 내용이 같거나 새 이름인 경우만 허용. 기존 탭의 chunk 삭제/덮어쓰기 방지.
-    existing = set()
-    for path in files:
-        relative = path.relative_to(site).as_posix()
-        if relative == "index.html":
-            continue
-        prior = directory / "compare-static"
-        exists = get_object(api, bucket, prefix + relative, prior)
-        if exists:
-            require(hashlib.sha256(prior.read_bytes()).digest() == hashlib.sha256(path.read_bytes()).digest(),
-                    "기존 정적 파일과 이름은 같지만 내용이 다름. 버전/해시 파일명 필요")
-            existing.add(relative)
-    return {"bucket": bucket, "prefix": prefix, "distribution": distribution, "image": uri,
-            "site": site, "files": files, "previous": previous, "previous_metadata": metadata,
-            "index_attempted": False, "existing": existing}
-
-
-def invalidate(api, plan):
-    result = api("cloudfront", "create-invalidation", "--distribution-id", plan["distribution"], "--paths", "/*")
-    api("cloudfront", "wait", "invalidation-completed", "--distribution-id", plan["distribution"],
-        "--id", result["Invalidation"]["Id"])
-
-
-def apply_frontend(api, plan):
-    ordered = [path for path in plan["files"] if path.name != "index.html"] + [plan["site"] / "index.html"]
-    for path in ordered:
-        relative = path.relative_to(plan["site"]).as_posix()
-        if relative in plan.get("existing", set()):
-            continue
-        conditions = ["--if-none-match", "*"]
-        # 계획 후 다른CD가index를바꿨으면바로덮어쓰지않고중단. 환경concurrency도필수.
-        if relative == "index.html":
-            now = get_object(api, plan["bucket"], plan["prefix"] + relative, plan["site"].parent / "current-index")
-            require((now or {}).get("VersionId") == (plan["previous_metadata"] or {}).get("VersionId"), "index 동시 배포 감지")
-            if now:
-                require(bool(now.get("ETag")), "index 조건부 쓰기 ETag 필요")
-                conditions = ["--if-match", now["ETag"]]
-            plan["index_attempted"] = True
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        result = api("s3api", "put-object", "--bucket", plan["bucket"], "--key", plan["prefix"] + relative,
-                     "--body", str(path), "--content-type", mimetypes.guess_type(relative)[0] or "application/octet-stream",
-                     "--cache-control", "no-cache" if relative == "index.html" else "public,max-age=31536000,immutable",
-                     "--metadata", "sha256=" + digest, *conditions)
-        if relative == "index.html":
-            plan["new_index_version"] = result.get("VersionId")
-        checked = plan["site"].parent / "verified-object"
-        get_object(api, plan["bucket"], plan["prefix"] + relative, checked)
-        require(hashlib.sha256(checked.read_bytes()).hexdigest() == digest, "S3 업로드 후 해시 검증 실패")
-    invalidate(api, plan)
-
-
-def rollback_frontend(api, plan):
-    if not plan["index_attempted"]:
-        return
-    require(plan["previous_metadata"] is not None, "최초 FE 배포에는 이전index가없음. 수동복구필요")
-    now_path = plan["site"].parent / "rollback-index-check"
-    current = get_object(api, plan["bucket"], plan["prefix"] + "index.html", now_path)
-    require(current is not None and now_path.read_bytes() in (plan["previous"].read_bytes(), (plan["site"] / "index.html").read_bytes()),
-            "다른FE배포감지. 자동복구중단")
-    metadata = plan["previous_metadata"]
-    require(bool(current.get("ETag")), "index 조건부 복구 ETag 필요")
-    api("s3api", "put-object", "--bucket", plan["bucket"], "--key", plan["prefix"] + "index.html",
-        "--body", str(plan["previous"]), "--content-type", metadata.get("ContentType", "text/html"),
-        "--cache-control", metadata.get("CacheControl", "no-cache"), "--if-match", current["ETag"])
-    checked = plan["site"].parent / "rollback-index-verified"
-    get_object(api, plan["bucket"], plan["prefix"] + "index.html", checked)
-    require(checked.read_bytes() == plan["previous"].read_bytes(), "index 복구 후 내용 확인 실패")
-    invalidate(api, plan)
-
-
 def deliver(args, api, directory):
     require(api("sts", "get-caller-identity").get("Account") == ACCOUNT, "AWS 계정 불일치")
-    # 모든선택대상의검사완료전에는등록/배포/업로드를하지않음.
     backends = prepare_backend(api, args.environment, args.backend_version, args.backend_layout,
-                               args.compatibility_reviewed == "true") if args.component in ("backend", "all") else []
-    frontend = prepare_frontend(api, args.environment, args.frontend_version, directory) if args.component in ("frontend", "all") else None
+                               args.compatibility_reviewed == "true")
     receipt = {"environment": args.environment, "apply": args.apply, "status": "validated",
                "backend": [{"service": p["service"], "previous": p["previous"], "image": p["image"]} for p in backends],
-               "frontend": {key: frontend[key] for key in ("bucket", "prefix", "distribution", "image")} if frontend else None,
-               "limitations": ["DB schema rollback not performed", "private viewer/auth/payment QA remains required"]}
+               "limitations": ["DB schema rollback not performed", "FE delivery belongs to FE repository"]}
     path = directory / "receipt.json"
     path.write_text(json.dumps(receipt, indent=2))
     if not args.apply:
-        print("V2_RELEASE_VALIDATED_NO_AWS_WRITE")
+        print("V2_BACKEND_VALIDATED_NO_AWS_WRITE")
         return
     attempted = []
     try:
         apply_backend(api, backends, attempted)
-        if frontend:
-            apply_frontend(api, frontend)
     except Exception:
         receipt["status"] = "failed"
-        # 앱과 정적 index만 복구. FE 복구 실패 시에도 BE 복구를 시도하되 DB는 자동 복원하지 않음.
-        failures = []
-        for name, restore in (("frontend", lambda: rollback_frontend(api, frontend) if frontend else None),
-                              ("backend", lambda: rollback_backend(api, attempted))):
-            try:
-                restore()
-            except Exception:
-                failures.append(name)
-        receipt["rollback"] = "manual intervention required: " + ",".join(failures) if failures else "previous application revisions/index restored"
+        try:
+            rollback_backend(api, attempted)
+            receipt["rollback"] = "previous application revisions restored"
+        except Exception:
+            receipt["rollback"] = "manual intervention required: backend"
         path.write_text(json.dumps(receipt, indent=2))
         raise
     receipt["status"] = "deployed"
     receipt["backend"] = [{"service": p["service"], "previous": p["previous"], "new": p["new"], "image": p["image"]} for p in attempted]
     path.write_text(json.dumps(receipt, indent=2))
-    print("V2_RELEASE_DEPLOYED_AND_INFRA_HEALTH_VERIFIED")
+    print("V2_BACKEND_DEPLOYED_AND_INFRA_HEALTH_VERIFIED")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=["staging", "production"], required=True)
-    parser.add_argument("--component", choices=["backend", "frontend", "all"], required=True)
-    parser.add_argument("--backend-version", default="")
-    parser.add_argument("--frontend-version", default="")
+    parser.add_argument("--backend-version", required=True)
     parser.add_argument("--backend-layout", choices=["legacy-v1", "split-v2"], default="split-v2")
     parser.add_argument("--compatibility-reviewed", choices=["true", "false"], default="false")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     require(os.environ.get("GITHUB_ACTIONS") == "true" and os.environ.get("GITHUB_REF") == "refs/heads/main",
-            "main의GitHub Actions수동승인Delivery에서만실행허용")
-    require(os.environ.get("V2_CD_READY") == "true", "환경준비플래그필요")
-    if args.component != "frontend":
-        require(os.environ.get("V2_TASK_DEFINITION_OWNER") == "cd", "Task Definition 배포 소유권 이전 확인 필요")
+            "main의 GitHub Actions Delivery에서만 실행 허용")
+    require(os.environ.get("V2_CD_READY") == "true", "환경 준비 플래그 필요")
+    require(os.environ.get("V2_TASK_DEFINITION_OWNER") == "cd", "Task Definition 배포 소유권 이전 확인 필요")
     os.umask(0o077)
     directory = Path(args.state_dir)
-    require(directory.is_absolute() and len(directory.parts) >= 4 and not directory.exists(), "새로운전용작업폴더필요")
+    require(directory.is_absolute() and len(directory.parts) >= 4 and not directory.exists(), "새로운 전용 작업 폴더 필요")
     directory.mkdir(mode=0o700, parents=True)
     deliver(args, Aws(args.apply), directory)
 
