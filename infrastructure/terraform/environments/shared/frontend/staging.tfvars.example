@@ -1,0 +1,3 @@
+# 해당 스테이징 프록시의 실제 인터넷 출구 IPv4로 교체 후 별도 파일로 사용한다.
+staging_cloudfront_enabled = true
+staging_gateway_ipv4      = "YOUR_GATEWAY_PUBLIC_IPV4"
