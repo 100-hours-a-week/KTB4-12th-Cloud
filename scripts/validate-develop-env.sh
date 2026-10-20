@@ -98,8 +98,8 @@ if [[ "$(get_value JWT_ISSUER)" != *develop* ]]; then
   exit 1
 fi
 
-if [[ "$(get_value CORS_ALLOWED_ORIGINS)" != "https://dev.seonjalal.com" ]]; then
-  echo "CORS_ALLOWED_ORIGINS must be https://dev.seonjalal.com." >&2
+if [[ "$(get_value CORS_ALLOWED_ORIGINS)" != "https://v1-benchmark.seonjalal.com" ]]; then
+  echo "CORS_ALLOWED_ORIGINS must be https://v1-benchmark.seonjalal.com." >&2
   exit 1
 fi
 

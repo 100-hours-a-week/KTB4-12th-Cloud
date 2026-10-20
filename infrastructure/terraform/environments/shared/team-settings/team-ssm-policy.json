@@ -1,0 +1,97 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BrowserLoginFromSameDeviceWithMfa",
+      "Effect": "Allow",
+      "Action": ["signin:AuthorizeOAuth2Access", "signin:CreateOAuth2Token"],
+      "Resource": "arn:aws:signin:ap-northeast-2:721744297924:oauth2/public-client/localhost",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "StartOnlyTaggedNonproductionAppSessions",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:ap-northeast-2:721744297924:instance/*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2",
+          "ssm:resourceTag/Project": "seonjalal",
+          "ssm:resourceTag/Environment": ["develop", "staging"],
+          "ssm:resourceTag/TeamSSMAccess": "true"
+        }
+      }
+    },
+    {
+      "Sid": "UseOnlyDefaultShellDocument",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ssm:ap-northeast-2:721744297924:document/SSM-SessionManagerRunShell",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "ConnectAndManageOnlyOwnSessions",
+      "Effect": "Allow",
+      "Action": ["ssmmessages:OpenDataChannel", "ssm:ResumeSession", "ssm:TerminateSession"],
+      "Resource": "arn:aws:ssm:ap-northeast-2:721744297924:session/${aws:username}-*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "DenyOtherTargetsAndSessionDocuments",
+      "Effect": "Deny",
+      "Action": "ssm:StartSession",
+      "NotResource": [
+        "arn:aws:ec2:ap-northeast-2:721744297924:instance/*",
+        "arn:aws:ssm:ap-northeast-2:721744297924:document/SSM-SessionManagerRunShell"
+      ]
+    },
+    {
+      "Sid": "DenyWrongProjectOrMissingProject",
+      "Effect": "Deny",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:ap-northeast-2:721744297924:instance/*",
+      "Condition": {"StringNotEquals": {"ssm:resourceTag/Project": "seonjalal"}}
+    },
+    {
+      "Sid": "DenyProductionAndMissingEnvironment",
+      "Effect": "Deny",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:ap-northeast-2:721744297924:instance/*",
+      "Condition": {"StringNotEquals": {"ssm:resourceTag/Environment": ["develop", "staging"]}}
+    },
+    {
+      "Sid": "DenyWithoutExplicitTeamAccess",
+      "Effect": "Deny",
+      "Action": "ssm:StartSession",
+      "Resource": "arn:aws:ec2:ap-northeast-2:721744297924:instance/*",
+      "Condition": {"StringNotEquals": {"ssm:resourceTag/TeamSSMAccess": "true"}}
+    },
+    {
+      "Sid": "DenyOtherPeoplesSessions",
+      "Effect": "Deny",
+      "Action": ["ssmmessages:OpenDataChannel", "ssm:ResumeSession", "ssm:TerminateSession"],
+      "NotResource": "arn:aws:ssm:ap-northeast-2:721744297924:session/${aws:username}-*"
+    },
+    {
+      "Sid": "DenyServerLifecycleRunCommandAndAccessTagChanges",
+      "Effect": "Deny",
+      "Action": [
+        "ssm:SendCommand",
+        "ec2:RunInstances", "ec2:TerminateInstances", "ec2:StartInstances", "ec2:StopInstances", "ec2:RebootInstances",
+        "ec2:CreateTags", "ec2:DeleteTags",
+        "autoscaling:CreateOrUpdateTags", "autoscaling:DeleteTags"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

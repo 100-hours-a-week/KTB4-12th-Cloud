@@ -1,0 +1,17 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+
+foundation_state_bucket  = "YOUR_TERRAFORM_STATE_BUCKET"
+foundation_state_profile = "YOUR_AWS_PROFILE"
+
+# Task/Service가 없는 초기 Platform은 EC2 없이 생성한다. Egress 검증 후 Capacity를 늘린다.
+container_instance_types = ["t3.large"]
+asg_min_size             = 0
+asg_desired_capacity     = 0
+asg_max_size             = 6
+managed_scaling_enabled  = false
+root_volume_size_gib     = 50
+
+additional_tags = {
+  CostCenter = "ktb4-12th"
+}

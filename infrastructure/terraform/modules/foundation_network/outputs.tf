@@ -31,3 +31,11 @@ output "s3_vpc_endpoint_id" {
   description = "App Route Table에 연결된 S3 Gateway Endpoint ID"
   value       = aws_vpc_endpoint.s3.id
 }
+
+output "app_egress" {
+  description = "ECS App Subnet의 외부 통신 구성"
+  value = {
+    mode            = var.nat_gateway_mode
+    nat_gateway_ids = { for key, gateway in aws_nat_gateway.this : key => gateway.id }
+  }
+}

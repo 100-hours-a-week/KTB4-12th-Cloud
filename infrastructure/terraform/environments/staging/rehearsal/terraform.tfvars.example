@@ -1,0 +1,37 @@
+# 실제조회값을입력. 예시그대로Plan/Apply금지,기존Develop입력파일복사금지.
+aws_account_id = "000000000000"
+aws_profile = "YOUR_AWS_PROFILE"
+# 초기 권장 AMI 탐색 후 실제 검증한 ID로 고정. 앱 시험 중 OS 업데이트는 별도 수행.
+# ecs_optimized_ami_id = "ami-0123456789abcdef0"
+vpc_id = "vpc-REPLACE"
+app_subnet_ids = ["subnet-PRIVATE_A", "subnet-PRIVATE_C"]
+public_subnet_ids = ["subnet-PUBLIC_A", "subnet-PUBLIC_C"]
+
+# 기본단계는ECR/빈Platform만준비. 별도Plan확인후기동.
+private_egress_verified = false
+asg_min_size = 0
+asg_desired_capacity = 0
+asg_max_size = 4
+managed_scaling_enabled = false
+enable_alb = false
+enable_service = false
+
+# 이후기동단계:PrivateEgress/ACM/Tailscale진입점/최신DB/이미지확인필요.
+# asg_min_size = 2
+# asg_desired_capacity = 2
+# private_egress_verified = true
+# enable_alb = true
+# alb_certificate_arn = "arn:aws:acm:ap-northeast-2:000000000000:certificate/REPLACE"
+# tailscale_router_instance_id = "i-0123456789abcdef0"
+# Internal ALB는 App 서브넷에만 생성. 경로 광고/승인/HTTPS Grant는 별도 단계.
+# backend_image = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/backend@sha256:REPLACE"
+# artifact_platform_verified = true
+# database_cutover_verified = true
+# 독립 시험 데이터 사용 시에는 위 Cutover 값 대신 별도 확인값만 지정.
+# database_fixture_verified = true
+# container_environment = { AWS_REGION = "ap-northeast-2", DB_URL = "jdbc:mysql://VERIFIED_HOST:3306/seonjalal_develop" }
+# VPN FE를 별도 포트로 제공하면 기존 Origin을 유지하며 정확한 HTTPS 주소를 쉼표로 추가한다.
+# CORS_ALLOWED_ORIGINS = "https://YOUR_STAGING_DOMAIN,https://YOUR_GATEWAY.YOUR_TAILNET.ts.net:8443"
+# 와일드카드 허용·중계의 Origin 위장으로 인증용 Origin 검사를 우회하지 않는다.
+# container_secrets = { DB_PASSWORD = { secret_arn = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:STAGING_RUNTIME", json_key = "DB_PASSWORD" } }
+# enable_service = true

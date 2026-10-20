@@ -1,0 +1,10 @@
+# 실제 확인값을 로컬 terraform.tfvars에 입력. 시험용 입력파일 복사 금지.
+aws_account_id = "000000000000"
+aws_profile = "YOUR_AWS_PROFILE"
+vpc_id = "vpc-REPLACE"
+data_subnet_ids = ["subnet-DATA_A", "subnet-DATA_C"]
+
+# 최초 기반 준비는 false. 이후 운영 RDS 저장 Plan 확인·승인 필요.
+enable_database = false
+database_instance_class = "db.t4g.small"
+database_max_storage_gib = 100

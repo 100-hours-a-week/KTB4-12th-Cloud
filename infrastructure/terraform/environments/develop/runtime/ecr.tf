@@ -1,9 +1,12 @@
 locals {
-  # Repository 경로는 CI와 CD가 공유하는 배포 계약이다. AI는 Dockerfile 확정 전까지 비워 둔다.
+  # Repository 경로는 CI와 CD가 공유하는 배포 계약이다.
   develop_ecr_repositories = toset([
     "frontend",
     "backend",
+    # 기존 ai Repository는 삭제로 인한 Artifact 손실을 막기 위해 유지한다.
     "ai",
+    "ai-profiling",
+    "ai-product-search",
   ])
 }
 

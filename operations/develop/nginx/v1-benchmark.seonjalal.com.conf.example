@@ -1,0 +1,34 @@
+server {
+    listen 80;
+    server_name v1-benchmark.seonjalal.com;
+
+    # 평상시 Security Group의 80은 닫고 인증서 검증이 필요한 동안만 제한적으로 사용한다.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name v1-benchmark.seonjalal.com;
+
+    ssl_certificate /etc/letsencrypt/live/v1-benchmark.seonjalal.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/v1-benchmark.seonjalal.com/privkey.pem;
+
+    # V1 Benchmark는 시험 Window에 승인된 Public IPv4만 접근 가능하다.
+    # 실제 CIDR은 Git에 기록하지 않고 EC2의 Allowlist에서 관리한다.
+    include /etc/nginx/snippets/dev-access-allowlist.conf;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

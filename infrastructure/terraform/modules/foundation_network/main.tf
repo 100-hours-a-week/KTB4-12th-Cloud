@@ -1,6 +1,10 @@
 locals {
   az_keys = ["a", "c"]
 
+  nat_gateway_az_keys = var.nat_gateway_mode == "per_az" ? local.az_keys : (
+    var.nat_gateway_mode == "single" ? [local.az_keys[0]] : []
+  )
+
   subnet_definitions = merge(
     {
       for key in local.az_keys : "public-${key}" => {
@@ -95,6 +99,39 @@ resource "aws_route_table" "app" {
     Name = "${var.name_prefix}-app-${each.key}-rt"
     Tier = "app"
   }
+}
+
+resource "aws_eip" "nat" {
+  for_each = toset(local.nat_gateway_az_keys)
+
+  domain = "vpc"
+
+  tags = {
+    Name = "${var.name_prefix}-nat-${each.key}-eip"
+  }
+}
+
+resource "aws_nat_gateway" "this" {
+  for_each = toset(local.nat_gateway_az_keys)
+
+  allocation_id = aws_eip.nat[each.key].id
+  subnet_id     = aws_subnet.this["public-${each.key}"].id
+
+  tags = {
+    Name = "${var.name_prefix}-nat-${each.key}"
+  }
+
+  depends_on = [aws_internet_gateway.this]
+}
+
+resource "aws_route" "app_default" {
+  for_each = var.nat_gateway_mode == "none" ? toset([]) : toset(local.az_keys)
+
+  route_table_id         = aws_route_table.app[each.key].id
+  destination_cidr_block = "0.0.0.0/0"
+  nat_gateway_id = aws_nat_gateway.this[
+    var.nat_gateway_mode == "per_az" ? each.key : local.az_keys[0]
+  ].id
 }
 
 resource "aws_route" "default" {
@@ -256,5 +293,12 @@ check "data_route_tables_have_no_default_route" {
       for route in local.default_routes : route.tier != "data"
     ])
     error_message = "Default Route 선언에는 Data Tier를 포함할 수 없습니다."
+  }
+}
+
+check "nat_gateway_mode_is_valid" {
+  assert {
+    condition     = contains(["none", "single", "per_az"], var.nat_gateway_mode)
+    error_message = "nat_gateway_mode는 none, single, per_az 중 하나여야 합니다."
   }
 }

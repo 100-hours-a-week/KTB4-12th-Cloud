@@ -1,4 +1,6 @@
-name: Production CD
+name: Legacy V1 Production CD
+
+# V1 운영 전환 전 수동 복구 경로 보존. V2 배포는 cd-v2.yml 사용.
 
 run-name: >-
   Deploy FE ${{ inputs.frontend_version }} / BE ${{ inputs.backend_version }}
