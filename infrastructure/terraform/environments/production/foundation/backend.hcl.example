@@ -1,0 +1,6 @@
+bucket = "YOUR_TERRAFORM_STATE_BUCKET"
+key = "v2/production/foundation/terraform.tfstate"
+region = "ap-northeast-2"
+encrypt = true
+use_lockfile = true
+profile = "YOUR_AWS_PROFILE"

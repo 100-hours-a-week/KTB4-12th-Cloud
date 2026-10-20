@@ -21,5 +21,6 @@ output "network" {
     data_subnet_ids    = module.foundation_network.data_subnet_ids
     security_group_ids = module.foundation_network.security_group_ids
     s3_endpoint_id     = module.foundation_network.s3_vpc_endpoint_id
+    app_egress         = module.foundation_network.app_egress
   }
 }

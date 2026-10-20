@@ -5,16 +5,22 @@ locals {
       repository    = "100-hours-a-week/KTB4-12th-FE"
       owner_id      = "167328634"
       repository_id = "1344623849"
+      branch        = "develop"
+      ecr_workloads = ["frontend"]
     }
     backend = {
       repository    = "100-hours-a-week/KTB4-12th-BE"
       owner_id      = "167328634"
       repository_id = "1344623893"
+      branch        = "develop"
+      ecr_workloads = ["backend"]
     }
     ai = {
       repository    = "100-hours-a-week/KTB4-12th-AI"
       owner_id      = "167328634"
       repository_id = "1344623933"
+      branch        = "main"
+      ecr_workloads = ["ai-profiling", "ai-product-search"]
     }
   }
 }
@@ -45,7 +51,7 @@ data "aws_iam_policy_document" "github_ecr_assume_role" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:100-hours-a-week@${each.value.owner_id}/${split("/", each.value.repository)[1]}@${each.value.repository_id}:ref:refs/heads/develop",
+        "repo:100-hours-a-week@${each.value.owner_id}/${split("/", each.value.repository)[1]}@${each.value.repository_id}:ref:refs/heads/${each.value.branch}",
       ]
     }
   }
@@ -94,7 +100,9 @@ data "aws_iam_policy_document" "github_ecr_publish" {
       "ecr:PutImage",
       "ecr:UploadLayerPart",
     ]
-    resources = [aws_ecr_repository.develop[each.key].arn]
+    resources = [
+      for workload in each.value.ecr_workloads : aws_ecr_repository.develop[workload].arn
+    ]
   }
 }
 
@@ -137,7 +145,7 @@ data "aws_iam_policy_document" "github_develop_deploy_assume_role" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:100-hours-a-week@${each.value.owner_id}/${split("/", each.value.repository)[1]}@${each.value.repository_id}:ref:refs/heads/develop",
+        "repo:100-hours-a-week@${each.value.owner_id}/${split("/", each.value.repository)[1]}@${each.value.repository_id}:ref:refs/heads/${each.value.branch}",
       ]
     }
   }

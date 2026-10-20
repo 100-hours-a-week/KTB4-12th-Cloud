@@ -1,0 +1,36 @@
+# 기존 Develop Compose와 별도 Project. FE 파일은 제공하지 않고 기존 이미지의 Nginx만 재사용한다.
+name: seonjalal-staging-gateway
+services:
+  gateway:
+    image: peterj0117/seonjalal-fe@sha256:274aee76a923e1eed970bf6bdb65538754b35608110624ba0cc441b330276e61
+    platform: linux/amd64
+    entrypoint: ["nginx"]
+    command: ["-g", "daemon off;"]
+    user: "101:101"
+    read_only: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18082:8080"
+    volumes:
+      - type: bind
+        source: ./nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/gateway-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

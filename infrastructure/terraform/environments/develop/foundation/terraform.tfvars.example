@@ -4,6 +4,10 @@ aws_account_id = "000000000000"
 # Mac의 읽기 전용 Plan에서만 Profile을 지정한다. GitHub Actions에서는 OIDC Role을 사용한다.
 aws_profile = "YOUR_AWS_PROFILE"
 
+# ECS Agent/ECR/CloudWatch Logs/외부 API 통신에 필요하다.
+# Develop 비용 절감용 single은 NAT 장애 시 두 AZ가 함께 영향을 받는다. Production은 per_az를 사용한다.
+nat_gateway_mode = "single"
+
 additional_tags = {
   CostCenter = "ktb4-12th"
 }

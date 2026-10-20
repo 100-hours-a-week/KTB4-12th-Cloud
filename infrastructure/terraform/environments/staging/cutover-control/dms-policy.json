@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadTaskStatusInSeoul",
+      "Effect": "Allow",
+      "Action": ["dms:DescribeReplicationTasks"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "ReadTablesAndStopOnlyNewRehearsalTask",
+      "Effect": "Allow",
+      "Action": ["dms:DescribeTableStatistics", "dms:StopReplicationTask"],
+      "Resource": "arn:aws:dms:ap-northeast-2:721744297924:task:OU5M6NHIS5BOHGL7KSXRWHCKNY",
+      "Condition": {
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    }
+  ]
+}

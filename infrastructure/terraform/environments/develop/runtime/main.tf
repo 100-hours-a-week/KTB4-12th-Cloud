@@ -51,6 +51,9 @@ resource "aws_instance" "develop" {
   })
 
   tags = {
-    Name = "${local.name_prefix}-runtime"
+    Name          = "${local.name_prefix}-runtime"
+    Project       = local.project
+    Environment   = local.environment
+    TeamSSMAccess = "true"
   }
 }

@@ -24,6 +24,10 @@
 
 ## 브랜치별 의미
 
+V2의 ECR 릴리스·ECS/S3 배포 실행 조건과 GitHub Environment 설정은
+[V2 릴리스 실행 안내](operations/v2-release/README.md)를 참고하세요.
+기존 V1 수동 배포와 V2 Delivery는 별도 workflow이며, V2 코드를 추가했다고 운영 전환이 수행되지는 않습니다.
+
 | 브랜치 | 의미 |
 |---|---|
 | `main` | 운영에 반영할 수 있는 안정된 코드와 설정을 관리합니다. |
@@ -55,13 +59,17 @@ SCHEDULING_ENABLED=false
 운영 배포 전에는 Backend Flyway 마이그레이션의 데이터 변경 범위를 확인하고 DB를 백업해야 합니다.
 현재 자동 Rollback은 Frontend와 Backend 컨테이너만 이전 이미지로 복구하며 DB 변경은 되돌리지 않습니다.
 
-## Develop 구성 가이드
+## V1 Benchmark 구성 가이드
 
-Develop은 `develop` 브랜치의 통합 결과를 빠르게 검증하는 공유 환경이다. Production과 다른
+V1 Benchmark는 기존 V1 구조와 V2의 동일 Image 비교를 위한 시험 환경이다. Production과 다른
 EC2, Domain, DB Volume과 Secret을 사용하며 운영과 같은 Docker Compose·MySQL 8.4 구조를
-유지한다. V1은 별도 사전 운영 환경을 두지 않고 `dev.seonjalal.com`을 사용한다.
+유지한다. Public 진입점은 `v1-benchmark.seonjalal.com`이며 평상시 서버를 중지한다.
 
-### 1. Develop Host 준비
+신규 V2 Develop은 별도 EC2에서 Tailscale 전용 HTTPS로 제공한다. 자세한 구성은
+`docs/2026-10-11-v2-develop-runtime-deployment.md`를 따른다. 아래 `.env.develop`과 Compose Project
+이름은 기존 V1 Runtime 호환을 위해 유지한 이름이다.
+
+### 1. V1 Benchmark Host 준비
 
 - Amazon Linux 계열 EC2를 별도로 준비한다.
 - 외부 SSH를 열기보다 SSM Session Manager를 사용한다.
@@ -134,15 +142,18 @@ ENV_FILE=.env.develop ./scripts/verify.sh develop
 
 ### 5. Domain·TLS 연결
 
-1. `dev.seonjalal.com` Route 53 A Record를 Develop IP에 연결한다.
-2. `operations/develop/nginx/dev.seonjalal.com.conf.example`을 Host Nginx 기준으로 적용한다.
+1. `v1-benchmark.seonjalal.com` Route 53 A Record를 현재 V1 Benchmark Public IPv4에 연결한다.
+2. `operations/develop/nginx/v1-benchmark.seonjalal.com.conf.example`을 Host Nginx 기준으로 적용한다.
+   실제 승인 공인 IP는 Git에 기록하지 않고
+   `operations/develop/nginx/dev-access-allowlist.conf.example`을 참고해 Develop EC2의
+   `/etc/nginx/snippets/dev-access-allowlist.conf`에서 관리한다.
 3. DNS 검증을 우선 사용하거나, HTTP 검증 동안만 Security Group의 80을 임시 허용한다.
 4. 인증서 발급 후 80을 닫고 443 Source가 승인된 `/32` 목록뿐인지 확인한다.
 5. 허용된 Network에서 Frontend와 `/api/health`를 확인한다.
 
 ```bash
-curl -fsS https://dev.seonjalal.com/ >/dev/null
-curl -fsS https://dev.seonjalal.com/api/health
+curl -fsS https://v1-benchmark.seonjalal.com/ >/dev/null
+curl -fsS https://v1-benchmark.seonjalal.com/api/health
 ```
 
 권장 Develop Security Group Inbound 규칙:
@@ -168,7 +179,7 @@ aws ssm start-session \
 
 - 실제 Volume 이름이 `seonjalal-develop-db-data`인지 확인한다.
 - `DB_NAME`, `DB_USER`와 JWT Issuer에 `develop`이 포함되고 CORS Origin이
-  `https://dev.seonjalal.com`인지 확인한다.
+  `https://v1-benchmark.seonjalal.com`인지 확인한다.
 - 신규 DB에서 Flyway Migration이 성공했는지 Backend Log로 확인한다.
 - Develop에서 생성한 Test User가 Production에 존재하지 않는지 확인한다.
 
