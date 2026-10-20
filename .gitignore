@@ -13,40 +13,22 @@ certbot/conf/
 __pycache__/
 *.pyc
 
-# Local-only project notes and generated load-test reports.
-# 운영 기준 문서와 ADR은 AGENTS.md의 변경 이력 규칙에 따라 예외적으로 추적합니다.
-docs/
-*.md
-!/README.md
-!/.github/pull_request_template.md
-# 추적할 운영 기준 문서는 광범위한 Markdown Ignore 규칙 뒤에서 다시 허용합니다.
-!/docs/
-/docs/*
-!/docs/CURRENT_STATUS.md
-!/docs/PROJECT_CONTEXT.md
-!/docs/ARCHITECTURE.md
-!/docs/V2_IMPLEMENTATION_PLAN.md
-!/docs/2026-10-06-v2-aws-inventory-and-terraform-bootstrap.md
-!/docs/2026-10-07-v1-alerting-activation-and-state-migration.md
-!/docs/2026-10-11-v2-develop-continuous-deployment.md
-!/docs/2026-10-11-v2-develop-runtime-cicd-final-report.md
-!/docs/2026-10-11-v1-release-to-v2-develop-cicd-worklog.md
-!/docs/2026-10-12-v2-develop-boot-reconcile-rollback-loop.md
-!/docs/guides/
-/docs/guides/*
-!/docs/guides/v2-develop-tailscale-access-guide.md
-!/docs/decisions/
-/docs/decisions/*
-!/docs/decisions/001-v2-infrastructure.md
-!/docs/decisions/002-v2-network-egress.md
-!/docs/decisions/003-v2-scope-reliability-budget.md
-!/docs/decisions/004-develop-runtime-access.md
-# GitHub Wiki에 게시할 원고는 본 저장소에서도 변경 이력을 관리합니다.
-!/wiki/
-!/wiki/*.md
-!/operations/alerting/README.md
+# 문서와 Wiki 게시 원고는 로컬에서 작성하고 Cloud 전용 Wiki에만 게시합니다.
+# docs/와 wiki/는 코드 Repository의 Commit/Push 대상에서 제외합니다.
+/docs/
+/wiki/
+# 개인 명령어 모음은 로컬에서만 보관합니다.
+/COMMANDS.local.md
+# 개인 개념 학습 자료 전체(첨부 파일 포함)는 로컬에서만 보관합니다.
+/Study/
+# Agent 작업 규칙은 로컬 전용이며 코드 저장소와 Wiki에 업로드하지 않습니다.
+AGENTS.md
 load-tests/results/
 load-tests/secrets/
+# 부하 시험·마이그레이션의 원본 결과와 전달용 묶음은 Local 증거로 보존하고 코드 Commit에서 제외합니다.
+/artifacts/
+/load-tests/handoff/
+/load-tests/server-results/
 
 # Terraform의 로컬 상태와 실제 환경 입력값에는 리소스 정보나 Secret 참조가 포함될 수 있습니다.
 **/.terraform/
