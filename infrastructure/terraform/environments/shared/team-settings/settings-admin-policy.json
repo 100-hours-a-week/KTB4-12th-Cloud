@@ -1,0 +1,75 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageSecretsInSeoulWithMfa",
+      "Effect": "Allow",
+      "Action": "secretsmanager:*",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "ListParametersInSeoulWithMfa",
+      "Effect": "Allow",
+      "Action": "ssm:DescribeParameters",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "ManageParametersNotServers",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter", "ssm:GetParameters", "ssm:GetParameterHistory",
+        "ssm:GetParametersByPath", "ssm:PutParameter", "ssm:DeleteParameter",
+        "ssm:DeleteParameters", "ssm:LabelParameterVersion", "ssm:UnlabelParameterVersion",
+        "ssm:AddTagsToResource", "ssm:RemoveTagsFromResource", "ssm:ListTagsForResource",
+        "ssm:GetResourcePolicies", "ssm:PutResourcePolicy", "ssm:DeleteResourcePolicy"
+      ],
+      "Resource": "arn:aws:ssm:ap-northeast-2:721744297924:parameter/*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "UseKmsOnlyThroughSettingsServices",
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey"],
+      "Resource": "arn:aws:kms:ap-northeast-2:721744297924:key/*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {
+          "aws:RequestedRegion": "ap-northeast-2",
+          "kms:CallerAccount": "721744297924",
+          "kms:ViaService": ["secretsmanager.ap-northeast-2.amazonaws.com", "ssm.ap-northeast-2.amazonaws.com"]
+        }
+      }
+    },
+    {
+      "Sid": "DescribeKeysForConsole",
+      "Effect": "Allow",
+      "Action": "kms:DescribeKey",
+      "Resource": "arn:aws:kms:ap-northeast-2:721744297924:key/*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    },
+    {
+      "Sid": "ListKeyAliasesForConsole",
+      "Effect": "Allow",
+      "Action": "kms:ListAliases",
+      "Resource": "*",
+      "Condition": {
+        "Bool": {"aws:MultiFactorAuthPresent": "true"},
+        "StringEquals": {"aws:RequestedRegion": "ap-northeast-2"}
+      }
+    }
+  ]
+}
