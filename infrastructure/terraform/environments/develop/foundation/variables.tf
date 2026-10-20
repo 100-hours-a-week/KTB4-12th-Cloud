@@ -64,3 +64,14 @@ variable "additional_tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "nat_gateway_mode" {
+  description = "Private App Subnet의 Egress 방식. Develop은 single, Production은 per_az를 권장한다."
+  type        = string
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "single", "per_az"], var.nat_gateway_mode)
+    error_message = "nat_gateway_mode는 none, single, per_az 중 하나여야 합니다."
+  }
+}

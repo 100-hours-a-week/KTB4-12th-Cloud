@@ -32,3 +32,14 @@ variable "application_port" {
   type        = number
   default     = 8080
 }
+
+variable "nat_gateway_mode" {
+  description = "App Subnet Egress 방식. single은 Develop 비용 절감, per_az는 AZ 독립성을 위한 값이다."
+  type        = string
+  default     = "none"
+
+  validation {
+    condition     = contains(["none", "single", "per_az"], var.nat_gateway_mode)
+    error_message = "nat_gateway_mode는 none, single, per_az 중 하나여야 합니다."
+  }
+}
