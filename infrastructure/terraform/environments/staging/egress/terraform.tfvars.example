@@ -1,0 +1,8 @@
+aws_account_id = "000000000000"
+aws_profile = "YOUR_AWS_PROFILE"
+vpc_id = "vpc-REHEARSAL"
+nat_public_subnet_id = "subnet-PUBLIC_A"
+# NAT 준비와 App 경로 연결은 별도 검증/승인 단계.
+enable_nat_instance = false
+attach_app_routes = false
+app_subnet_ids = { a = "subnet-APP_A", c = "subnet-APP_C" }
