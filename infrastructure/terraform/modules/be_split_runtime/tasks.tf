@@ -117,6 +117,28 @@ resource "aws_lb_target_group" "main" {
   depends_on = [terraform_data.guard]
 }
 
+# ECS CreateService는 Target Group이 Listener에 연결되어 있어야 한다.
+# 운영 요청 Host와 일치하지 않는 예약된 .invalid Host로 먼저 연결하고,
+# 실제 운영 Host 전환은 main_cutover의 별도 승인 경계로 유지한다.
+resource "aws_lb_listener_rule" "main_parking" {
+  count        = var.environment == "production" ? 1 : 0
+  listener_arn = var.config.alb_listener_arn
+  priority     = 8
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.main.arn
+  }
+
+  condition {
+    host_header { values = ["seonjalal-v2-production-prewarm.invalid"] }
+  }
+
+  condition {
+    path_pattern { values = ["/__seonjalal-be-prewarm"] }
+  }
+}
+
 resource "aws_ecs_service" "service" {
   for_each                           = local.names
   name                               = each.value
@@ -177,6 +199,7 @@ resource "aws_ecs_service" "service" {
     aws_vpc_security_group_ingress_rule.database,
     aws_vpc_security_group_ingress_rule.secrets_endpoint,
     aws_vpc_security_group_egress_rule.alb_to_main,
+    aws_lb_listener_rule.main_parking,
   ]
 }
 

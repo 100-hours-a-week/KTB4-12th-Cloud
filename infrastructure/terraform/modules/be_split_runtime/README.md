@@ -2,7 +2,7 @@
 
 이 모듈은 기존 V2 ECS Cluster, Capacity Provider, 내부 ALB, MySQL RDS, Private Subnet을 입력으로 받아 Main Backend와 Payment Server를 별도 Task Definition/Service로 구성한다. 새 EC2/ASG/RDS는 만들지 않는다. `desired_count=0`은 Task Definition과 Service만 보존하는 휴면 상태다.
 
-- Main `8080`만 기존 내부 ALB의 별도 IP Target Group에 연결한다. 기존 Listener 기본 Target은 유지한다. `traffic_cutover=true`는 Task2개 이상·사전 Health 확인 뒤 별도 Plan에서 Host Rule을 생성한다.
+- Main `8080`만 기존 내부 ALB의 별도 IP Target Group에 연결한다. 운영에서는 ECS Service 생성 전에 우선순위 8의 `.invalid` Host·전용 Path 대기 규칙으로 Target Group을 Listener에 연결한다. 이 규칙은 정상 운영 Host 요청과 일치하지 않으며 기존 Listener 기본 Target을 유지한다. `traffic_cutover=true`는 Task2개 이상·사전 Health 확인 뒤 별도 Plan에서 우선순위 9의 실제 Host Rule을 생성한다.
 - 스테이징은 HTTPS 443, 운영은 CloudFront VPC Origin의 HTTPS 8443 Listener를 검증한다. 운영 Host는 `v2-origin.seonjalal.com`만 허용하고, Cutover는 기존 우선순위 10 규칙 앞의 우선순위 9로 제한한다.
 - Payment `8090`은 ALB에 공개하지 않는다. Main과 Payment가 같은 AI Root의 Service Connect namespace를 사용하며 Main은 `http://payment-server:8090`으로 호출한다. AI Chat/Profiler 주소도 같은 namespace의 별도 Service를 참조한다.
 - 두 Task 모두 EC2/awsvpc/linux/amd64, Private Subnet, Digest 고정 이미지를 사용한다. 활성화 시 각 Service 최소2개, 정상 유지100%/추가 용량200%, Circuit Breaker를 사용한다.
