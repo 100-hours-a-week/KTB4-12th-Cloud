@@ -8,6 +8,7 @@ output "staging" {
     capacity_provider                 = aws_ecs_capacity_provider.application.name
     asg_name                          = aws_autoscaling_group.application.name
     repository_url                    = aws_ecr_repository.backend.repository_url
+    ai_image_publisher_role_arn       = aws_iam_role.ai_image_publisher.arn
     ai_repository_urls = {
       for workload, repository in aws_ecr_repository.ai : workload => repository.repository_url
     }
