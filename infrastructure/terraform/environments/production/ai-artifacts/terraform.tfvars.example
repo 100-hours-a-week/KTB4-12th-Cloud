@@ -1,0 +1,2 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
