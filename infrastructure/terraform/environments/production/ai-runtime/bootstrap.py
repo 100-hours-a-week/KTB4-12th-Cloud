@@ -45,6 +45,15 @@ def _password(dsn, role, host):
     return unquote(parsed.password or "")
 
 
+def _scram_verifier(db, role, password):
+    encoding = db.info.encoding
+    verifier = db.pgconn.encrypt_password(password.encode(encoding), role.encode(encoding),
+                                          b"scram-sha-256")
+    if not verifier.startswith(b"SCRAM-SHA-256$") or password.encode(encoding) in verifier:
+        raise ValueError("Could not create a SCRAM password verifier")
+    return verifier.decode("ascii")
+
+
 def _secret_values(client, arn, keys, host):
     versions = client.describe_secret(SecretId=arn).get("VersionIdsToStages", {})
     if any("AWSCURRENT" in stages for stages in versions.values()):
@@ -95,7 +104,7 @@ def bootstrap(environ, client, connect=psycopg.connect):
                                       (role,)).fetchone()
                 if existing is None:
                     db.execute(sql.SQL("CREATE ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD {}").format(
-                        sql.Identifier(role), sql.Literal(password)))
+                        sql.Identifier(role), sql.Literal(_scram_verifier(db, role, password))))
                 elif existing != (True, False, False, False):
                     raise ValueError("Existing role has unexpected privileges")
                 db.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
