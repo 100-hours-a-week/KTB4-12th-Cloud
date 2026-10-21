@@ -47,6 +47,26 @@ class BootstrapContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.bootstrap._password(dsn, "ai_chat_service", self.host)
 
+    def test_role_creation_uses_client_side_scram_verifier(self):
+        calls = []
+
+        def encrypt_password(password, role, algorithm):
+            calls.append((password, role, algorithm))
+            return b"SCRAM-SHA-256$4096:salt$stored:server"
+
+        db = types.SimpleNamespace(info=types.SimpleNamespace(encoding="utf-8"),
+                                   pgconn=types.SimpleNamespace(encrypt_password=encrypt_password))
+        verifier = self.bootstrap._scram_verifier(db, "ai_migrator", "sensitive-password")
+        self.assertEqual(calls, [(b"sensitive-password", b"ai_migrator", b"scram-sha-256")])
+        self.assertTrue(verifier.startswith("SCRAM-SHA-256$"))
+        self.assertNotIn("sensitive-password", verifier)
+
+    def test_non_scram_verifier_is_rejected(self):
+        db = types.SimpleNamespace(info=types.SimpleNamespace(encoding="utf-8"),
+                                   pgconn=types.SimpleNamespace(encrypt_password=lambda *_: b"plain-password"))
+        with self.assertRaises(ValueError):
+            self.bootstrap._scram_verifier(db, "ai_migrator", "plain-password")
+
     def test_new_secret_is_written_once_without_printing_password(self):
         client = FakeSecrets()
         values = self.bootstrap._secret_values(client, "arn:test", ("MIGRATION_DATABASE_URL",), self.host)
