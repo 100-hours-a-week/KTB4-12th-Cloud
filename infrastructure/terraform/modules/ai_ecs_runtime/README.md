@@ -21,6 +21,7 @@
 - 이번 변경에는 AI Cloud Delivery Workflow 및 앱/Job 실행 명령 미포함
 - BE Main/Payment가 같은 Namespace를 참조하도록 후속 구성 필요. 외부 Chat/Profiler 호출은 Backend SG만 허용하며 Search는 외부 인바운드 미노출
 - Export Job은 Service Connect 대상이 아니므로 검증된 HTTPS ALB 주소 사용. 이 모듈은 입력된 Backend/ALB SG에 AI 전용 규칙만 추가하며 기존 규칙 전체를 인수하지 않음
+- 운영 Backend ALB Listener는 8443이므로 운영 AI Task→ALB SG 송신과 ALB SG←AI Task 수신을 8443으로 한정. 스테이징의 기존 HTTPS 진입점 443은 유지. 운영 `backend_base_url`·Export/Categories URL은 실제 도달 가능한 Origin·포트로 검증해야 하며, Main Service가 게시하지 않은 `main-backend` Service Connect 별칭을 운영에서 가정하지 않음
 
 ## Secret JSON 계약
 
