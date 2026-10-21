@@ -252,6 +252,27 @@ run "execution_role_reads_only_selected_runtime_secret" {
 run "empty_platform_is_safe" {
   command = plan
   assert {
+    condition = (
+      toset(keys(aws_ecr_repository.ai)) == toset(["chat", "migrate", "profiler", "search"]) &&
+      alltrue([for workload, repository in aws_ecr_repository.ai :
+        repository.name == "seonjalal/staging/ai-${workload}" &&
+        repository.image_tag_mutability == "IMMUTABLE" &&
+        !repository.force_delete &&
+        repository.image_scanning_configuration[0].scan_on_push &&
+        repository.encryption_configuration[0].encryption_type == "AES256"
+      ])
+    )
+    error_message = "AI 스테이징 ECR 4개는 불변 태그·스캔·암호화·강제 삭제 금지 계약 필요."
+  }
+  assert {
+    condition = alltrue([for policy in aws_ecr_lifecycle_policy.ai :
+      jsondecode(policy.policy).rules[0].selection.tagStatus == "untagged" &&
+      jsondecode(policy.policy).rules[0].selection.countType == "sinceImagePushed" &&
+      jsondecode(policy.policy).rules[0].selection.countNumber == 7
+    ])
+    error_message = "AI ECR은 태그된 롤백 Artifact를 보존하고 미태그 이미지만 7일 후 정리해야 함."
+  }
+  assert {
     condition     = aws_secretsmanager_secret.backend_runtime.name == "seonjalal/staging/backend/runtime" && aws_secretsmanager_secret.backend_runtime.recovery_window_in_days == 7
     error_message = "런타임 Secret은 전용 이름/삭제 복구 기간 필요. Secret 값은 Terraform에서 관리 금지."
   }
