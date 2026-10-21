@@ -163,8 +163,20 @@ resource "aws_vpc_security_group_ingress_rule" "backend_export" {
   security_group_id            = var.config.backend_export_security_group_id
   referenced_security_group_id = aws_security_group.task.id
   ip_protocol                  = "tcp"
-  from_port                    = 443
-  to_port                      = 443
+  # 운영 전용 Listener는 8443, 스테이징의 기존 HTTPS 진입점은 443.
+  from_port = var.environment == "production" ? 8443 : 443
+  to_port   = var.environment == "production" ? 8443 : 443
+}
+
+# 운영 AI의 Export·Callback은 내부 ALB 8443을 사용한다. 일반 HTTPS 443
+# 송신 규칙만으로는 이 경로에 접근할 수 없으므로 ALB SG로 한정해 허용한다.
+resource "aws_vpc_security_group_egress_rule" "backend_export" {
+  count                        = var.environment == "production" ? 1 : 0
+  security_group_id            = aws_security_group.task.id
+  referenced_security_group_id = var.config.backend_export_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 8443
+  to_port                      = 8443
 }
 
 # 스테이징의 기존 State 주소를 인덱스 0으로 이동하고 리소스는 그대로 보존한다.

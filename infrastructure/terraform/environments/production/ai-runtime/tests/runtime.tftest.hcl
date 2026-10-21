@@ -122,7 +122,11 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
       anytrue([for svc in aws_ecs_service.ai.service_connect_configuration[0].service :
         svc.discovery_name == "ai-chat" && svc.timeout[0].per_request_timeout_seconds == 0
       ]) &&
-      toset(keys(aws_vpc_security_group_ingress_rule.from_backend)) == toset(["chat", "profiler"])
+      toset(keys(aws_vpc_security_group_ingress_rule.from_backend)) == toset(["chat", "profiler"]) &&
+      aws_vpc_security_group_ingress_rule.backend_export.from_port == 8443 &&
+      aws_vpc_security_group_ingress_rule.backend_export.to_port == 8443 &&
+      one(aws_vpc_security_group_egress_rule.backend_export).from_port == 8443 &&
+      one(aws_vpc_security_group_egress_rule.backend_export).to_port == 8443
     )
     error_message = "운영 준비 상태 및 AI 단일세대 배포·Backend 전용 Chat/Profiler 접근 유지 필요."
   }
