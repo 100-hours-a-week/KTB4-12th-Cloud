@@ -1,6 +1,9 @@
 # 운영 BE·AI ECS 용량
 
-- 운영 BE 애플리케이션 ASG는 서울 2개 App Subnet에 `min_size = desired_capacity = max_size = 2`로 설정한다. Apply 후 실제 EC2가 각 AZ에 1대씩 등록됐는지 확인해야 하며, BE Split Task/Service는 별도 Root에서 배포한다.
+- 운영 BE 애플리케이션 ASG는 서울 2개 App Subnet에 `min_size = desired_capacity = 2`로 설정한다. 호스트 교체 중 새 호스트를 먼저 기동할 수 있도록 `max_size = 3`을 임시 허용하며, 교체 완료·배치 확인 뒤 별도 Plan으로 다시 2로 낮춘다. 정상 상태는 각 AZ에 1대씩이며 BE Split Task/Service는 별도 Root에서 배포한다.
+- BE Launch Template 목표 타입은 `t3.large`(2 vCPU, 8 GiB)다. 기존 `t3.medium` 2대를 유지한 채 Terraform Apply는 새 Launch Template 버전·ASG 참조·임시 max3만 갱신하며, 기존 EC2를 즉시 교체하지 않는다. `runtime_compute.instance_type`은 목표 타입이지 현재 두 EC2의 실측 타입을 뜻하지 않는다.
+- EC2 교체는 별도 승인된 ASG Instance Refresh로만 시작한다. 최소 정상 100%·최대 150%로 새 호스트를 먼저 기동해 한 번에 최대 3대가 될 수 있다. ECS Managed Draining과 기존 BE Service의 `minimumHealthyPercent=100`/`maximumPercent=200`을 확인하고, 새 ECS 호스트 등록·Task/Target Health·AZ 분산을 관측한다. EC2 정상만으로 서비스 무중단을 보장하지 않으므로 실패·정체 시 Refresh를 중단하고 원인 확인 후 별도 복구 Plan을 세운다.
+- BE Task Main1536MiB+Payment1024MiB는 각 AZ당 2560MiB 예약이 필요하다. 현재 기존 V1 BE Task가 있는 2a 호스트의 잔여 메모리2303MiB에는 함께 배치되지 않는다. 모든 새 호스트가 `t3.large`로 교체되고 ECS 잔여 자원을 다시 확인하기 전에는 BE Split Service를 desired2로 올리지 않는다.
 - 이 Root에서 Plan/Apply할 때 이미 기동된 AI 호스트가 축소되지 않도록 `-var='ai_desired_capacity=1'`을 함께 지정한다. 기본값 0으로 Plan하면 AI ASG를 0대로 줄이려 할 수 있다.
 
 - 기존 운영 BE ASG/Capacity Provider와 Cluster 기본 전략은 유지한다. AI 전용 ASG·Capacity Provider만 같은 Terraform State에 추가한다. Cluster Capacity Provider 연결은 이 Root 한 곳에서만 관리한다.
