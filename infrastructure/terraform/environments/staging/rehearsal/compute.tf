@@ -1,3 +1,15 @@
+locals {
+  # 휴면 중 예기치 않은 기동·교체를 막되, Terminate는 허용해 축소와 정리를 방해하지 않는다.
+  dormant_asg_suspended_processes = [
+    "AZRebalance",
+    "AlarmNotification",
+    "InstanceRefresh",
+    "Launch",
+    "ReplaceUnhealthy",
+    "ScheduledActions",
+  ]
+}
+
 resource "aws_launch_template" "application" {
   name_prefix = "${local.name_prefix}-application-"
   # 첫 탐색과 시험 중 호스트 업데이트를 분리. 고정값이 있으면 최신 권장값 이동 무시.
@@ -64,6 +76,8 @@ resource "aws_autoscaling_group" "application" {
   health_check_type         = "EC2"
   health_check_grace_period = 300
   protect_from_scale_in     = true
+  # 용량을 다시 활성화하면 Terraform이 중지 프로세스를 모두 해제한다.
+  suspended_processes = var.asg_desired_capacity == 0 ? local.dormant_asg_suspended_processes : []
 
   mixed_instances_policy {
     launch_template {

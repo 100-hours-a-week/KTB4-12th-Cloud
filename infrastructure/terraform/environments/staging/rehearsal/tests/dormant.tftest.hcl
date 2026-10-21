@@ -97,9 +97,33 @@ run "dormant_service_keeps_topology_without_compute" {
       aws_ecs_service.backend[0].desired_count == 0 &&
       aws_autoscaling_group.application.min_size == 0 &&
       aws_autoscaling_group.application.desired_capacity == 0 &&
+      toset(aws_autoscaling_group.application.suspended_processes) ==
+      toset([
+        "AZRebalance",
+        "AlarmNotification",
+        "InstanceRefresh",
+        "Launch",
+        "ReplaceUnhealthy",
+        "ScheduledActions",
+      ]) &&
       !var.managed_scaling_enabled
     )
-    error_message = "휴면 스테이징은 Task Definition과 Service를 보존하되 Task/EC2 실행 용량이 0이어야 함."
+    error_message = "휴면 스테이징은 Task Definition과 Service를 보존하고 Task/EC2 실행 용량을 0으로 유지하며 기동·교체 프로세스를 중지해야 함."
+  }
+}
+
+run "active_service_resumes_asg_processes" {
+  command = plan
+
+  variables {
+    asg_min_size         = 2
+    asg_desired_capacity = 2
+    desired_task_count   = 2
+  }
+
+  assert {
+    condition     = length(aws_autoscaling_group.application.suspended_processes) == 0
+    error_message = "활성 스테이징은 ASG 기동·교체 프로세스를 다시 허용해야 함."
   }
 }
 
