@@ -48,7 +48,8 @@
 ```
 
 - manifest 파일 자체 SHA256과 각 파일 크기/Hash를 확인하며, 모델은 Image 내부 `/opt/encoder/model.lock.json`과도 일치 필요
-- 빈 Media·경로 탈출·중복 경로·Prefix 외 참조 차단. manifest최대1MiB·파일당256MiB·합계1GiB로 초기 제한
+- 첫 운영 배포는 BE가 상품 ID로 기존 S3 이미지를 제공하므로 모델 파일만 포함한 Manifest도 허용. 이때 AI `/media`는 빈 디렉터리이며 AI가 상품 이미지를 제공한다고 간주하지 않음
+- 모델 누락·경로 탈출·중복 경로·Prefix 외 참조 차단. manifest최대1MiB·파일당256MiB·합계1GiB로 초기 제한
 - 압축 해제/임의 코드 실행 없이 S3 Object를 Task 임시 Volume에 기록. 새 Task에서 다시 검증·다운로드
 - Init만 root 및 CHOWN 권한 사용, 앱은 UID10001·read-only root·ALL capabilities 제거
 - ECS Container dependency startTimeout은 최대120초. 실제 Init/Search 준비가 시간 안에 완료되지 않으면 기동 중단하며, 자산 선준비 방식을 재검토

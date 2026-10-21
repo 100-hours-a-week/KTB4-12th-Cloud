@@ -40,8 +40,6 @@ def validate_manifest(raw, expected_hash, prefix, model_lock):
         item = seen.get("assets/models/" + model["path"])
         if item is None or (item["bytes"], item["sha256"]) != (model["bytes"], model["sha256"]):
             raise ValueError("IMAGE_MODEL_LOCK_MISMATCH")
-    if not any(name.startswith("media/") for name in seen):
-        raise ValueError("MEDIA_ASSETS_REQUIRED")
     return files
 
 
@@ -62,6 +60,11 @@ def download_verified(client, bucket, item, root):
     destination.chmod(0o444)
 
 
+def prepare_media_directory(root):
+    # BE가 상품 이미지를 제공하는 배포에서도 Search/Chat의 정적 경로는 존재해야 한다.
+    (root / "media").mkdir(parents=True, exist_ok=True)
+
+
 def main():
     import boto3
     from botocore.config import Config
@@ -75,6 +78,7 @@ def main():
     files = validate_manifest(raw, os.environ["ASSET_MANIFEST_SHA256"], os.environ["ASSET_PREFIX"], model_lock)
     for item in files:
         download_verified(client, bucket, item, Path("/shared"))
+    prepare_media_directory(Path("/shared"))
     directory = Path("/shared/tls")
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "rds-ca.pem").write_text(os.environ["RDS_CA_PEM"])

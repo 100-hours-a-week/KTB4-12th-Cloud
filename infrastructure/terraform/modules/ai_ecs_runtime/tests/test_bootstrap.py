@@ -39,6 +39,14 @@ class BootstrapTests(unittest.TestCase):
     def test_complete_manifest_matches_model_lock(self):
         self.assertEqual(validate(FILES), FILES)
 
+    def test_model_only_manifest_keeps_empty_media_path(self):
+        self.assertEqual(validate(FILES[:1]), FILES[:1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            assets.prepare_media_directory(root)
+            self.assertTrue((root / "media").is_dir())
+            self.assertEqual(list((root / "media").iterdir()), [])
+
     def test_changed_manifest_is_rejected_before_download(self):
         with self.assertRaisesRegex(ValueError, "HASH"):
             assets.validate_manifest(b"{}", "0" * 64, "release/", MODEL)
@@ -63,9 +71,7 @@ class BootstrapTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "MODEL_LOCK"):
             validate(items)
 
-    def test_media_and_positive_bounded_sizes_are_required(self):
-        with self.assertRaisesRegex(ValueError, "MEDIA"):
-            validate(FILES[:1])
+    def test_positive_bounded_sizes_are_required(self):
         for size in [0, -1, True, 300 * 1024 * 1024]:
             with self.subTest(size=size):
                 items = copy.deepcopy(FILES)
