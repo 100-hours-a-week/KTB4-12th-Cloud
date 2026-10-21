@@ -22,6 +22,16 @@ variable "aws_profile" {
   default = "seonjalal-production"
 }
 
+variable "ai_desired_capacity" {
+  description = "AI 전용 ECS 호스트 수. 기본 0대, 승인 후 최대 1대"
+  type        = number
+  default     = 0
+  validation {
+    condition     = contains([0, 1], var.ai_desired_capacity)
+    error_message = "운영 AI 전용 호스트는 0대 또는 1대만 허용."
+  }
+}
+
 provider "aws" {
   region              = "ap-northeast-2"
   profile             = var.aws_profile
