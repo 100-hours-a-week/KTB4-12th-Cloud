@@ -25,8 +25,6 @@ variables {
     backend_security_group_id         = "sg-main-backend"
     backend_export_security_group_id  = "sg-backend-alb"
     backend_base_url                  = "http://main-backend:8080"
-    backend_export_url                = "https://backend.example.invalid/export"
-    backend_categories_url            = "https://backend.example.invalid/categories"
     source_sha                        = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     images = {
       chat     = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-chat@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

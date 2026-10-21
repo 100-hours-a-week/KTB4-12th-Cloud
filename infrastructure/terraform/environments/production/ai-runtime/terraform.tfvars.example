@@ -21,8 +21,7 @@ bootstrap_expires_at      = null
 #   backend_security_group_id         = "sg-VERIFIED_PRODUCTION_MAIN_BACKEND"
 #   backend_export_security_group_id  = "sg-VERIFIED_PRODUCTION_BACKEND_HTTPS_ALB"
 #   backend_base_url                   = "http://main-backend:8080"
-#   backend_export_url                 = "https://VERIFIED_BACKEND/VERIFIED_EXPORT_PATH"
-#   backend_categories_url            = "https://VERIFIED_BACKEND/VERIFIED_CATEGORIES_PATH"
+#   # 검증된 Catalog Bundle을 쓰는 운영에서는 Export/Categories URL을 입력하지 않는다.
 #   source_sha                        = "FULL_AI_MAIN_COMMIT_SHA"
 #   images = {
 #     chat     = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-chat@sha256:REPLACE"
