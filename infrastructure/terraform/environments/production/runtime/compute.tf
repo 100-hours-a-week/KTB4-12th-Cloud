@@ -114,12 +114,12 @@ resource "aws_launch_template" "node" {
   }
 }
 
-# 초기 비용 절감안: 상시 1대. 호스트 장애 시 무중단 보장 없음.
-# Task/Service는 미정의. 승인 전 Plan만으로 EC2가 기동되지는 않음.
+# BE 호스트 2대를 서로 다른 App Subnet/AZ에 분산한다. 실제 AZ 배치는 Apply 후 확인한다.
+# BE Split Task/Service는 별도 Root에서 관리하며 이 변경만으로 기동되지 않는다.
 resource "aws_autoscaling_group" "node" {
   name                      = "${local.name}-ecs-application"
-  min_size                  = 1
-  desired_capacity          = 1
+  min_size                  = 2
+  desired_capacity          = 2
   max_size                  = 2
   vpc_zone_identifier       = sort(tolist(local.app_subnets))
   health_check_type         = "EC2"

@@ -1,4 +1,7 @@
-# 운영 AI 전용 ECS 용량
+# 운영 BE·AI ECS 용량
+
+- 운영 BE 애플리케이션 ASG는 서울 2개 App Subnet에 `min_size = desired_capacity = max_size = 2`로 설정한다. Apply 후 실제 EC2가 각 AZ에 1대씩 등록됐는지 확인해야 하며, BE Split Task/Service는 별도 Root에서 배포한다.
+- 이 Root에서 Plan/Apply할 때 이미 기동된 AI 호스트가 축소되지 않도록 `-var='ai_desired_capacity=1'`을 함께 지정한다. 기본값 0으로 Plan하면 AI ASG를 0대로 줄이려 할 수 있다.
 
 - 기존 운영 BE ASG/Capacity Provider와 Cluster 기본 전략은 유지한다. AI 전용 ASG·Capacity Provider만 같은 Terraform State에 추가한다. Cluster Capacity Provider 연결은 이 Root 한 곳에서만 관리한다.
 - AI 호스트는 서울 A Private App Subnet `subnet-08c2017235a4a56da`에만 배치한다. BE와 호스트를 공유하지 않는다.
