@@ -39,8 +39,6 @@ variables {
     backend_security_group_id         = "sg-main-backend"
     backend_export_security_group_id  = "sg-backend-https"
     backend_base_url                  = "http://main-backend:8080"
-    backend_export_url                = "https://backend.example.invalid/test/export"
-    backend_categories_url            = "https://backend.example.invalid/test/categories"
     source_sha                        = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     images = {
       chat     = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-chat@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -87,9 +85,9 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
       toset([for c in jsondecode(aws_ecs_task_definition.app.container_definitions) : c.name]) == toset(["assets-init", "chat", "profiler", "search"]) &&
       toset(keys(aws_ecs_task_definition.job)) == toset(["migrate", "catalog"]) &&
       anytrue([for c in jsondecode(aws_ecs_task_definition.job["catalog"].container_definitions) :
-        c.name == "catalog" && anytrue([for e in c.environment :
-          e.name == "CATALOG_BUNDLE_S3" && e.value == var.config.catalog_bundle_s3
-        ])
+        c.name == "catalog" &&
+        anytrue([for e in c.environment : e.name == "CATALOG_BUNDLE_S3" && e.value == var.config.catalog_bundle_s3]) &&
+        alltrue([for e in c.environment : !contains(["BACKEND_EXPORT_URL", "BACKEND_CATEGORIES_URL"], e.name)])
       ]) &&
       alltrue([for c in jsondecode(aws_ecs_task_definition.app.container_definitions) :
         c.readonlyRootFilesystem && c.startTimeout <= 120 && (c.name == "assets-init" || c.user == "10001:10001")
@@ -153,7 +151,11 @@ run "production_without_shared_namespace_is_rejected" {
 run "production_without_catalog_bundle_is_rejected" {
   command = plan
   module { source = "../../../modules/ai_ecs_runtime" }
-  variables { config = merge(var.config, { catalog_bundle_s3 = null }) }
+  variables { config = merge(var.config, {
+    catalog_bundle_s3      = null
+    backend_export_url     = "https://backend.example.invalid/export"
+    backend_categories_url = "https://backend.example.invalid/categories"
+  }) }
   expect_failures = [terraform_data.guard]
 }
 
