@@ -22,7 +22,7 @@ variable "aws_profile" {
 }
 
 variable "production_distribution_arn" {
-  description = "검토한 운영 Distribution의 신규 V1 정적 경로 읽기 허용. null이면 미허용."
+  description = "검토한 운영 Distribution에 frontend/production/* 정적 경로 읽기 허용. null이면 미허용."
   type        = string
   default     = null
   validation {
