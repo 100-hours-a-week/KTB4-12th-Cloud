@@ -115,7 +115,8 @@ resource "aws_ecs_service" "backend" {
   health_check_grace_period_seconds  = 120
   enable_ecs_managed_tags            = true
   propagate_tags                     = "SERVICE"
-  # CI와Terraform에서desired/task_definition을혼용하지않음. 현재는이Root가소유.
+  # 현재는 이 Root가 desired/task_definition을 소유한다. Cloud CD로 소유권을 넘기기 전
+  # ignore_changes를 추가하지 않으며, 별도 변경에서 배포 스크립트와 함께 전환한다.
   deployment_controller {
     type = "ECS"
   }
@@ -154,8 +155,17 @@ resource "aws_ecs_service" "backend" {
   aws_iam_role_policy.product_images]
   lifecycle {
     precondition {
-      condition     = var.enable_alb && var.private_egress_verified && var.asg_desired_capacity >= 2 && var.asg_min_size >= 2
-      error_message = "ALB/Private Egress 검증과최소EC2두대준비후에만Service실행가능."
+      condition = var.desired_task_count == 0 ? (
+        var.asg_min_size == 0 &&
+        var.asg_desired_capacity == 0 &&
+        !var.managed_scaling_enabled
+        ) : (
+        var.enable_alb &&
+        var.private_egress_verified &&
+        var.asg_min_size >= 2 &&
+        var.asg_desired_capacity >= 2
+      )
+      error_message = "휴면 Service는 task0·ASG min/desired0·ManagedScaling 비활성, 활성 Service는 ALB/Egress 검증과 최소 EC2/Task2개 필요."
     }
   }
 }

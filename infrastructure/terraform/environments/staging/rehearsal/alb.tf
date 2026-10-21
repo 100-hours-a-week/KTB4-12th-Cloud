@@ -55,6 +55,10 @@ resource "aws_lb" "backend" {
   drop_invalid_header_fields = true
   depends_on                 = [terraform_data.network_guard, data.aws_subnet.tailscale_router]
   lifecycle {
+    # Production shared-edge와 frontend가 이 ALB를 data source로 사용한다.
+    # 스테이징 휴면 전환에서 enable_alb=false로 잘못 제거하는 사고를 차단한다.
+    prevent_destroy = true
+
     precondition {
       condition     = var.alb_certificate_arn != null && var.tailscale_router_instance_id != null
       error_message = "유효한 ACM 인증서와 명시한 Tailscale 진입 EC2 확인 전 ALB 생성 금지."
