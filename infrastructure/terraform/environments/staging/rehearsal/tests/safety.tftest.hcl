@@ -411,6 +411,7 @@ run "cannot_start_against_unverified_database" {
     private_egress_verified      = true
     asg_min_size                 = 2
     asg_desired_capacity         = 2
+    desired_task_count           = 2
     artifact_platform_verified   = true
     database_cutover_verified    = false
     alb_certificate_arn          = "arn:aws:acm:ap-northeast-2:000000000000:certificate/00000000-0000-0000-0000-000000000000"
@@ -443,6 +444,7 @@ run "verified_service_has_rolling_rollback" {
     private_egress_verified      = true
     asg_min_size                 = 2
     asg_desired_capacity         = 2
+    desired_task_count           = 2
     artifact_platform_verified   = true
     database_cutover_verified    = true
     alb_certificate_arn          = "arn:aws:acm:ap-northeast-2:000000000000:certificate/00000000-0000-0000-0000-000000000000"
@@ -487,6 +489,7 @@ run "verified_independent_fixture_can_start_without_claiming_cutover" {
     private_egress_verified      = true
     asg_min_size                 = 2
     asg_desired_capacity         = 2
+    desired_task_count           = 2
     artifact_platform_verified   = true
     database_cutover_verified    = false
     database_fixture_verified    = true
