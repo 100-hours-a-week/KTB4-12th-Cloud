@@ -67,10 +67,11 @@ resource "terraform_data" "guard" {
         data.aws_lb.existing.vpc_id == var.config.vpc_id &&
         data.aws_lb.existing.internal &&
         data.aws_lb_listener.https.load_balancer_arn == var.config.alb_arn &&
-        data.aws_lb_listener.https.port == 443 &&
-        data.aws_lb_listener.https.protocol == "HTTPS"
+        data.aws_lb_listener.https.port == (var.environment == "production" ? 8443 : 443) &&
+        data.aws_lb_listener.https.protocol == "HTTPS" &&
+        (var.environment != "production" || var.config.application_domain_name == "v2-origin.seonjalal.com")
       )
-      error_message = "같은 VPC의 두 AZ Private Subnet·내부 HTTPS ALB·해당 환경 Cluster/Namespace 필요."
+      error_message = "같은 VPC의 두 AZ Private Subnet·환경별 내부 HTTPS Listener(운영8443/스테이징443)·해당 환경 Cluster/Namespace 필요."
     }
     precondition {
       condition = (

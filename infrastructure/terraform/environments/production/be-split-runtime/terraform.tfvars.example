@@ -1,0 +1,11 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+
+# 검증된 운영 Main/Payment 이미지 Digest, MySQL 데이터/Role, Secret,
+# AI Namespace와 BE 두 AZ 용량이 준비되기 전에는 리소스 미생성.
+deployment = null
+
+# 실제 배포 입력은 ../../../modules/be_split_runtime/variables.tf 계약을 따른다.
+# 운영 ALB는 CloudFront VPC Origin용 내부 8443 Listener를 사용한다.
+# application_domain_name = "v2-origin.seonjalal.com", listener_rule_priority = 9.
+# 첫 등록은 desired_count = 0, traffic_cutover = false.
