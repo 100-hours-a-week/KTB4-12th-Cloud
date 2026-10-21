@@ -86,7 +86,16 @@ run "dormant_split_contract" {
       toset(keys(aws_ecs_service.service)) == toset(["main_backend", "payment_server"]) &&
       alltrue([for task in values(aws_ecs_task_definition.service) : task.network_mode == "awsvpc" && task.runtime_platform[0].cpu_architecture == "X86_64" && task.skip_destroy]) &&
       alltrue([for service in values(aws_ecs_service.service) : service.desired_count == 0 && !service.network_configuration[0].assign_public_ip && service.service_connect_configuration[0].enabled && service.deployment_circuit_breaker[0].rollback]) &&
-      length(aws_lb_listener_rule.main_cutover) == 0
+      length(aws_lb_listener_rule.main_cutover) == 0 &&
+      length(aws_lb_listener_rule.main_parking) == 1 &&
+      aws_lb_listener_rule.main_parking[0].priority == 8 &&
+      aws_lb_listener_rule.main_parking[0].action[0].type == "forward" &&
+      anytrue([for condition in aws_lb_listener_rule.main_parking[0].condition :
+        anytrue([for host in condition.host_header : toset(host.values) == toset(["seonjalal-v2-production-prewarm.invalid"])])
+      ]) &&
+      anytrue([for condition in aws_lb_listener_rule.main_parking[0].condition :
+        anytrue([for path in condition.path_pattern : toset(path.values) == toset(["/__seonjalal-be-prewarm"])])
+      ])
     )
     error_message = "Main/Payment 분리 Task·휴면 Service·Service Connect 및 전환 미실행 필요."
   }

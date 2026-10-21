@@ -85,7 +85,8 @@ run "dormant_split_contract" {
       toset(keys(aws_ecs_service.service)) == toset(["main_backend", "payment_server"]) &&
       alltrue([for task in values(aws_ecs_task_definition.service) : task.network_mode == "awsvpc" && task.runtime_platform[0].cpu_architecture == "X86_64" && task.skip_destroy]) &&
       alltrue([for service in values(aws_ecs_service.service) : service.desired_count == 0 && !service.network_configuration[0].assign_public_ip && service.service_connect_configuration[0].enabled && service.deployment_circuit_breaker[0].rollback]) &&
-      length(aws_lb_listener_rule.main_cutover) == 0
+      length(aws_lb_listener_rule.main_cutover) == 0 &&
+      length(aws_lb_listener_rule.main_parking) == 0
     )
     error_message = "Main/Payment 분리 Task·휴면 Service·Service Connect 및 전환 미실행 필요."
   }
@@ -165,7 +166,7 @@ run "repository_without_cd_support_is_rejected" {
     config = merge(var.config, {
       image_repository = "seonjalal/staging/backend"
       images = {
-        main_backend = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        main_backend   = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/backend@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         payment_server = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/backend@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     })
