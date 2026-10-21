@@ -32,7 +32,7 @@ variables {
     vpc_id                            = "vpc-production"
     subnet_id                         = "subnet-private-a"
     cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-production-cluster"
-    capacity_provider                 = "seonjalal-v2-production-application"
+    capacity_provider                 = "seonjalal-v2-production-ai"
     database_host                     = "production-ai.example.ap-northeast-2.rds.amazonaws.com"
     database_client_security_group_id = "sg-ai-client"
     backend_security_group_id         = "sg-main-backend"
@@ -61,6 +61,24 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
   module { source = "../../../modules/ai_ecs_runtime" }
   assert {
     condition = (
+      tonumber(aws_ecs_task_definition.app.memory) == 3200 &&
+      {
+        for c in jsondecode(aws_ecs_task_definition.app.container_definitions) : c.name => c.memory
+        } == {
+        "assets-init" = 192
+        search        = 1280
+        profiler      = 640
+        chat          = 896
+      } &&
+      tonumber(aws_ecs_task_definition.app.memory) >= sum([
+        for c in jsondecode(aws_ecs_task_definition.app.container_definitions) : c.memory
+      ]) + 192 &&
+      tonumber(aws_ecs_task_definition.app.memory) <= 3327 - 127
+    )
+    error_message = "실제 ECS 잔여3327MiB 기준 Task3200MiB·배치 여유127MiB·Proxy 여유192MiB 필요."
+  }
+  assert {
+    condition = (
       aws_ecs_task_definition.app.network_mode == "awsvpc" &&
       toset(aws_ecs_task_definition.app.requires_compatibilities) == toset(["EC2"]) &&
       aws_ecs_task_definition.app.runtime_platform[0].cpu_architecture == "X86_64" &&
@@ -86,6 +104,7 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
   assert {
     condition = (
       aws_ecs_service.ai.desired_count == 0 &&
+      toset([for strategy in aws_ecs_service.ai.capacity_provider_strategy : strategy.capacity_provider]) == toset(["seonjalal-v2-production-ai"]) &&
       !aws_ecs_service.ai.network_configuration[0].assign_public_ip &&
       toset(aws_ecs_service.ai.network_configuration[0].subnets) == toset(["subnet-private-a"]) &&
       aws_ecs_service.ai.deployment_minimum_healthy_percent == 0 &&
@@ -134,6 +153,15 @@ run "cross_environment_cluster_is_rejected" {
   module { source = "../../../modules/ai_ecs_runtime" }
   variables {
     config = merge(var.config, { cluster_arn = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-staging-cluster" })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
+run "backend_capacity_provider_is_rejected" {
+  command = plan
+  module { source = "../../../modules/ai_ecs_runtime" }
+  variables {
+    config = merge(var.config, { capacity_provider = "seonjalal-v2-production-application" })
   }
   expect_failures = [terraform_data.guard]
 }

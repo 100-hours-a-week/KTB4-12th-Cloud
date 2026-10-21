@@ -9,7 +9,8 @@
 - 서울 A Private Subnet만 허용. 기존 Cluster·Capacity Provider를 입력받으며 EC2·ASG를 생성/확장하지 않음
 - AI 단일 Task의 중단 허용 배포: minHealthy0/max100. 겹치는 두 세대의 유료 호출·상태 갱신을 피하는 선택이며 무중단 보장 없음
 - Circuit Breaker 복귀는 이전 완료 배포가 있어야 가능. 최초 기동 실패 시 정상 이전 Revision이 없으므로 사용자 확인 필요
-- App Task의 CPU2048/메모리4096MiB는 초기 예약값. 실제 사양 적합성·Service Connect/호스트 여유 미검증
+- App Task의 CPU2048은 유지. 스테이징 메모리4096MiB 계약은 유지하고, 운영은 등록된 t3.medium의 ECS 잔여 MEMORY 실조회 3327MiB(2026-10-21)를 기준으로 Task 3200MiB로 제한. 운영 컨테이너 Hard Limit 합계3008MiB로 Service Connect Proxy에 192MiB, Host 배치에 127MiB를 남김
+- 운영 메모리 조정은 배치 조건의 정적 계산일 뿐 실제 안정성 검증이 아님. Service desired0에서 등록된 Host의 가용 CPU·메모리와 Task 예약값 일치를 확인한 뒤 `capacity_verified`를 승인. 최초 Service 기동 직후 Service Connect Proxy 포함 앱 RSS/Peak·OOM·Health를 측정하고, 실패하면 Service를 desired0으로 되돌린 뒤 Host 증설 또는 실행 단위 분리를 검토. 한도를 추가로 낮추며 OOM을 우회하지 않음
 - 기본 Root의 미생성 상태와 Service desired_count=0의 휴면 상태는 다름. 배포 후 config 제거로 정리하지 말고 desired_count=0으로 축소
 
 ## Terraform과 CD 소유권
