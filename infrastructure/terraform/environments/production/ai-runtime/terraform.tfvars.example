@@ -1,0 +1,33 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+
+# 실제 AI main Digest 4종, DB Role/Migration, 자산과 Secret 준비 전에는 리소스 미생성.
+deployment = null
+
+# 실제 배포 입력 구조. 이 예시는 그대로 Plan/Apply할 수 없다.
+# deployment = {
+#   vpc_id                            = "vpc-REPLACE"
+#   subnet_id                         = "subnet-PRIVATE_A"
+#   cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-production-cluster"
+#   capacity_provider                 = "seonjalal-v2-production-AI_CAPACITY_PROVIDER"
+#   database_host                     = "VERIFIED_PRODUCTION_RDS_ENDPOINT"
+#   database_client_security_group_id = "sg-FROM_PRODUCTION_AI_DATABASE_OUTPUT"
+#   backend_security_group_id         = "sg-VERIFIED_PRODUCTION_MAIN_BACKEND"
+#   backend_export_security_group_id  = "sg-VERIFIED_PRODUCTION_BACKEND_HTTPS_ALB"
+#   backend_base_url                   = "http://main-backend:8080"
+#   backend_export_url                 = "https://VERIFIED_BACKEND/VERIFIED_EXPORT_PATH"
+#   backend_categories_url            = "https://VERIFIED_BACKEND/VERIFIED_CATEGORIES_PATH"
+#   source_sha                        = "FULL_AI_MAIN_COMMIT_SHA"
+#   images = {
+#     chat     = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-chat@sha256:REPLACE"
+#     profiler = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-profiler@sha256:REPLACE"
+#     search   = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-search@sha256:REPLACE"
+#     migrate  = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai-migrate@sha256:REPLACE"
+#   }
+#   asset_bucket          = "VERIFIED_ASSET_BUCKET"
+#   asset_prefix          = "ai/production/VERIFIED_RELEASE/"
+#   asset_manifest_key    = "ai/production/VERIFIED_RELEASE/manifest.json"
+#   asset_manifest_sha256 = "VERIFIED_MANIFEST_SHA256"
+#   provider_models       = { chat = "TEAM_APPROVED_MODEL", profiler = "TEAM_APPROVED_MODEL" }
+#   desired_count         = 0
+# }
