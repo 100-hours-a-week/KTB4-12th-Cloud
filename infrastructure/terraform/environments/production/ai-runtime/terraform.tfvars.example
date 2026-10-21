@@ -3,6 +3,11 @@ aws_profile    = "YOUR_AWS_PROFILE"
 
 # 실제 AI main Digest 4종, DB Role/Migration, 자산과 Secret 준비 전에는 리소스 미생성.
 deployment = null
+bootstrap_admin_secret_arn = null
+bootstrap_expires_at      = null
+
+# 최초 DB 역할 준비 시에만 RDS 관리형 ai_admin Secret ARN과 4시간 이내 UTC 만료 시각 지정.
+# 비밀번호나 실제 Secret JSON은 tfvars/Terraform State에 기록하지 않는다.
 
 # 실제 배포 입력 구조. 이 예시는 그대로 Plan/Apply할 수 없다.
 # deployment = {
