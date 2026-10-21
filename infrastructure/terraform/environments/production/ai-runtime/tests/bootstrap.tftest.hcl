@@ -47,10 +47,12 @@ run "bootstrap_is_registered_but_not_run" {
   assert {
     condition = (
       length(aws_ecs_task_definition.bootstrap) == 1 &&
+      length(aws_ecs_task_definition.migration_rotation) == 1 &&
+      aws_ecs_task_definition.migration_rotation[0].family == "seonjalal-v2-production-ai-db-migration-rotate" &&
       module.ai[0].runtime.service_name == "seonjalal-v2-production-ai" &&
       jsondecode(aws_iam_role_policy.bootstrap_admin_secret[0].policy).Statement[0].Resource == var.bootstrap_admin_secret_arn &&
       length(aws_vpc_security_group_ingress_rule.secrets_from_bootstrap) == 1
     )
-    error_message = "관리자 Secret 읽기·AI Secret 세 개 쓰기·Endpoint 접근만 준비하고 Task는 자동 실행하지 않아야 함."
+    error_message = "관리자 Secret 읽기·AI Secret 세 개 쓰기·Endpoint 접근 및 일회성 복구 Task만 준비하고 Task는 자동 실행하지 않아야 함."
   }
 }
