@@ -24,6 +24,7 @@ variable "config" {
     subnet_id                         = string
     cluster_arn                       = string
     capacity_provider                 = string
+    namespace_arn                     = optional(string)
     database_host                     = string
     database_client_security_group_id = string
     backend_security_group_id         = string
@@ -54,6 +55,15 @@ variable "config" {
     }), {})
   })
 
+  validation {
+    condition = var.environment == "production" ? try(
+      can(regex("^arn:aws:servicediscovery:${var.aws_region}:${var.aws_account_id}:namespace/ns-[a-z0-9]+$", var.config.namespace_arn)),
+      false
+      ) : (
+      var.config.namespace_arn == null
+    )
+    error_message = "운영 AI는 같은 계정·리전의 외부 Service Connect Namespace ARN이 필요하고, 스테이징은 기존 자체 Namespace를 사용합니다."
+  }
   validation {
     condition = (
       contains([0, 1], var.config.desired_count) &&

@@ -15,6 +15,7 @@ bootstrap_expires_at      = null
 #   subnet_id                         = "subnet-PRIVATE_A"
 #   cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-production-cluster"
 #   capacity_provider                 = "seonjalal-v2-production-AI_CAPACITY_PROVIDER"
+#   namespace_arn                     = "arn:aws:servicediscovery:ap-northeast-2:000000000000:namespace/ns-FROM_PRODUCTION_SHARED_NAMESPACE_OUTPUT"
 #   database_host                     = "VERIFIED_PRODUCTION_RDS_ENDPOINT"
 #   database_client_security_group_id = "sg-FROM_PRODUCTION_AI_DATABASE_OUTPUT"
 #   backend_security_group_id         = "sg-VERIFIED_PRODUCTION_MAIN_BACKEND"

@@ -3,6 +3,7 @@
 - 독립 State: `v2/production/ai-runtime/terraform.tfstate`. 기존 운영 BE Service·Listener·ASG와 분리
 - 기본 `deployment = null`: AWS 리소스 0개. Task Definition/Service를 이미 등록했다는 뜻이 아님
 - 실제 Digest·DB·SG·자산/Manifest·Backend 계약 입력 시 `desired_count=0`으로 Task Definition·Service 및 Secret Metadata 준비 가능
+- Service Connect Namespace `seonjalal-v2-production-services`는 별도 `production/service-connect-namespace` State가 소유한다. 운영 `deployment.namespace_arn`에는 그 Root의 실제 출력 ARN을 입력하고, 이 Root에서는 Namespace를 중복 생성하지 않는다. 스테이징은 기존 자체 Namespace를 계속 관리한다.
 - `desired_count=1` 기동은 DB Migration·Catalog·Network·Capacity·Runtime·Secret·Provider 비용 승인 체크가 모두 참일 때만 허용
 - 서울 A Private App Subnet 한 곳에 AI 단일 Task 배치. 가용성보다 비용 우선이며 Task/Host/AZ 장애 중단을 허용
 - AI 전용 `t3.medium` Host는 ECS 등록 후 잔여 MEMORY 3327MiB·CPU2048을 실조회(2026-10-21). App Task는 CPU2048·메모리3200MiB, 컨테이너 Hard Limit 합계3008MiB로 Proxy192MiB와 Host 배치 여유127MiB를 남긴 최초 기동용 계약. 운영 입력은 BE용이 아닌 `seonjalal-v2-production-ai` Capacity Provider로 고정
