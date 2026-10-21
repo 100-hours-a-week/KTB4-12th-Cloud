@@ -184,10 +184,13 @@ variable "rds_tls_bootstrap_verified" {
 }
 variable "desired_task_count" {
   type    = number
-  default = 2
+  default = 0
   validation {
-    condition     = var.desired_task_count >= 2 && floor(var.desired_task_count) == var.desired_task_count
-    error_message = "두 AZ 분산 시험은 최소 태스크2개 필요."
+    condition = (
+      var.desired_task_count == 0 ||
+      (var.desired_task_count >= 2 && floor(var.desired_task_count) == var.desired_task_count)
+    )
+    error_message = "휴면 상태는 태스크0개, 활성 시험은 두 AZ 분산을 위해 최소 태스크2개 필요."
   }
 }
 variable "task_cpu" {
