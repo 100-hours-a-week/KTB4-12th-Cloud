@@ -12,3 +12,14 @@ output "runtime_compute" {
     database_switched   = false
   }
 }
+
+output "ai_compute" {
+  value = {
+    cluster_name      = data.aws_ecs_cluster.production.cluster_name
+    capacity_provider = aws_ecs_capacity_provider.ai.name
+    autoscaling_group = aws_autoscaling_group.ai.name
+    instance_type     = aws_launch_template.ai.instance_type
+    subnet_id         = local.ai_app_subnet_id
+    desired_nodes     = aws_autoscaling_group.ai.desired_capacity
+  }
+}
