@@ -48,6 +48,10 @@ resource "terraform_data" "guard" {
       condition     = var.config.desired_count == 0 || alltrue(values(var.config.activation_checks))
       error_message = "기동 전 DB Migration/Catalog/Network/Capacity/Runtime/Secret/Provider 비용 승인 확인 필요."
     }
+    precondition {
+      condition     = var.environment != "production" || var.config.catalog_bundle_s3 != null
+      error_message = "첫 운영 Catalog 적재에는 검증된 S3 Bundle URI 필요."
+    }
   }
 }
 

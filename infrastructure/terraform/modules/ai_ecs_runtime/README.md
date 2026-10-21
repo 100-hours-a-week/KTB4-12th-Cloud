@@ -4,7 +4,7 @@
 
 - app Task: assets-init 성공 → Search Healthy → Chat/Profiler 기동. awsvpc localhost 통신 유지
 - 일회성 migrate Task: CA 준비 후 `integration.migrate_single_server --database ai_db_<environment> --emmet`
-- 일회성 catalog Task: 자산 준비 후 `integration.search_sync`로 검증된 동일 Origin HTTPS Export/Categories 반영
+- 일회성 catalog Task: 운영은 `catalog_bundle_s3`의 검증된 tar를 `catalog_bundle.py --apply`로 가져와 임베딩 재생성 생략. 스테이징에서 이 값이 없으면 기존 `integration.search_sync` HTTPS Export/Categories 경로 유지
 - Console·합성 Backend·smoke provider·PostgreSQL 컨테이너 미포함
 - 서울 A Private Subnet만 허용. 기존 Cluster·Capacity Provider를 입력받으며 EC2·ASG를 생성/확장하지 않음
 - AI 단일 Task의 중단 허용 배포: minHealthy0/max100. 겹치는 두 세대의 유료 호출·상태 갱신을 피하는 선택이며 무중단 보장 없음

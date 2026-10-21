@@ -170,12 +170,14 @@ locals {
     catalog = {
       image       = var.config.images.search
       secret_keys = ["CATALOG_SYNC_DATABASE_URL", "BACKEND_SERVICE_TOKEN"]
-      environment = {
+      environment = merge({
         BACKEND_EXPORT_URL                = var.config.backend_export_url
         BACKEND_CATEGORIES_URL            = var.config.backend_categories_url
         BACKEND_EXPORT_ALLOW_PRIVATE_HTTP = "0"
         SEARCH_RUNTIME_ROOT               = "/runtime"
-      }
+        }, var.config.catalog_bundle_s3 == null ? {} : {
+        CATALOG_BUNDLE_S3 = var.config.catalog_bundle_s3
+      })
     }
   }
   ca_init = merge(local.asset_init, {
