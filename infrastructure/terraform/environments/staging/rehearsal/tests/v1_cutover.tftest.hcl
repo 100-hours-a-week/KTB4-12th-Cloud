@@ -102,6 +102,25 @@ run "isolated_routes_preserve_internet_and_data" {
     error_message = "전용 서브넷 연결·인터넷/Data 보존·App 두 응답 경로·단일 출발지 HTTPS 허용 필요."
   }
 }
+run "stopped_source_preserves_network_for_dormant_plan" {
+  command = plan
+  override_data {
+    target = data.aws_instance.cutover_source["rehearsal"]
+    values = { subnet_id = "subnet-source", instance_state = "stopped", private_ip = "172.31.6.212" }
+  }
+  assert {
+    condition     = length(aws_route_table.v1_cutover) == 1 && length(aws_route.v1_cutover_peering) == 4
+    error_message = "비용 절감으로 중지한 V1 Source는 기존 네트워크를 보존한 채 다른 Staging Plan을 막지 않아야 함."
+  }
+}
+run "transitional_source_state_blocks_changes" {
+  command = plan
+  override_data {
+    target = data.aws_instance.cutover_source["rehearsal"]
+    values = { subnet_id = "subnet-source", instance_state = "stopping", private_ip = "172.31.6.212" }
+  }
+  expect_failures = [aws_route_table.v1_cutover]
+}
 run "other_subnet_occupant_blocks_changes" {
   command = plan
   override_data {

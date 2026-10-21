@@ -66,14 +66,14 @@ resource "aws_route_table" "v1_cutover" {
   lifecycle {
     precondition {
       condition = (
-        data.aws_instance.cutover_source[each.key].instance_state == "running" &&
+        contains(["running", "stopped"], data.aws_instance.cutover_source[each.key].instance_state) &&
         data.aws_instance.cutover_source[each.key].subnet_id == each.value.source_subnet_id &&
         data.aws_instance.cutover_source[each.key].private_ip == each.value.source_private_ip &&
         data.aws_subnet.cutover_source[each.key].vpc_id == each.value.source_vpc_id &&
         data.aws_instance.cutover_production_guard[each.key].subnet_id != each.value.source_subnet_id &&
         toset(data.aws_instances.cutover_subnet_occupants[each.key].ids) == toset([each.value.source_instance_id])
       )
-      error_message = "벤치마크 한 대만 사용하는 별도 서브넷과 실행 IP 확인 필요. 운영 공유 서브넷 변경 금지."
+      error_message = "벤치마크 Source는 running/stopped 안정 상태여야 하며 한 대만 사용하는 별도 서브넷과 고정 Private IP 확인 필요. 운영 공유 서브넷 변경 금지."
     }
     precondition {
       condition = (
