@@ -1,0 +1,8 @@
+# 기존 공유 네트워크 실조회 결과로 로컬 terraform.tfvars 작성. 예시 그대로 Apply 금지.
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+vpc_id         = "vpc-REPLACE"
+data_subnet_ids = ["subnet-DATA_A", "subnet-DATA_C"]
+
+# 운영 초기 비용 최소화. 메모리·연결 수·Migration 실측 후 small 검토.
+database_instance_class = "db.t4g.micro"
