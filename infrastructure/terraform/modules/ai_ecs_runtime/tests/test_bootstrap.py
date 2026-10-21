@@ -36,6 +36,18 @@ def validate(items):
 
 
 class BootstrapTests(unittest.TestCase):
+    def test_catalog_bundle_uses_one_off_import_without_backend_reembedding(self):
+        uri = "s3://ai-production-assets-example/ai/production/release/catalog/catalog-bundle-" + "a" * 64 + ".tar"
+        self.assertEqual(launch.job_command("catalog", {"CATALOG_BUNDLE_S3": uri}),
+                         ["python", "/workspace/product-search/tools/catalog_bundle.py", "--bundle-s3", uri, "--apply"])
+
+    def test_staging_catalog_keeps_backend_export_path(self):
+        self.assertEqual(launch.job_command("catalog", {
+            "BACKEND_EXPORT_URL": "https://backend.example/export",
+            "BACKEND_CATEGORIES_URL": "https://backend.example/categories",
+        }), ["python", "-m", "integration.search_sync", "--export-url", "https://backend.example/export",
+             "--categories-url", "https://backend.example/categories", "--apply"])
+
     def test_complete_manifest_matches_model_lock(self):
         self.assertEqual(validate(FILES), FILES)
 

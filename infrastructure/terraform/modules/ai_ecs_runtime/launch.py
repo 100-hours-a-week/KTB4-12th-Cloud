@@ -27,18 +27,24 @@ def validate_connection(role, env):
         raise ValueError("AI_DATABASE_TLS_OR_IDENTITY_REJECTED")
 
 
+def job_command(role, env):
+    if role == "migrate":
+        return ["python", "-m", "integration.migrate_single_server", "--database", env["AI_DATABASE_NAME"], "--emmet"]
+    if role == "catalog":
+        if env.get("CATALOG_BUNDLE_S3"):
+            return ["python", "/workspace/product-search/tools/catalog_bundle.py", "--bundle-s3",
+                    env["CATALOG_BUNDLE_S3"], "--apply"]
+        return ["python", "-m", "integration.search_sync", "--export-url", env["BACKEND_EXPORT_URL"],
+                "--categories-url", env["BACKEND_CATEGORIES_URL"], "--apply"]
+    return ["python", "-m", "integration.containers.entrypoint", role]
+
+
 def main():
     role = sys.argv[1]
     validate_connection(role, os.environ)
     if not Path("/shared/tls/rds-ca.pem").is_file():
         raise ValueError("AI_RDS_CA_REQUIRED")
-    if role == "migrate":
-        command = ["python", "-m", "integration.migrate_single_server", "--database", os.environ["AI_DATABASE_NAME"], "--emmet"]
-    elif role == "catalog":
-        command = ["python", "-m", "integration.search_sync", "--export-url", os.environ["BACKEND_EXPORT_URL"],
-                   "--categories-url", os.environ["BACKEND_CATEGORIES_URL"], "--apply"]
-    else:
-        command = ["python", "-m", "integration.containers.entrypoint", role]
+    command = job_command(role, os.environ)
     os.execvp(command[0], command)
 
 

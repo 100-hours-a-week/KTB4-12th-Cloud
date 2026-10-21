@@ -51,6 +51,7 @@ variables {
     asset_prefix          = "ai/production/verified-release/"
     asset_manifest_key    = "ai/production/verified-release/manifest.json"
     asset_manifest_sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    catalog_bundle_s3     = "s3://ai-production-assets-example/ai/production/verified-release/catalog/catalog-bundle-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.tar"
     provider_models       = { chat = "synthetic/model", profiler = "synthetic/model" }
     desired_count         = 0
   }
@@ -84,6 +85,11 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
       aws_ecs_task_definition.app.runtime_platform[0].cpu_architecture == "X86_64" &&
       toset([for c in jsondecode(aws_ecs_task_definition.app.container_definitions) : c.name]) == toset(["assets-init", "chat", "profiler", "search"]) &&
       toset(keys(aws_ecs_task_definition.job)) == toset(["migrate", "catalog"]) &&
+      anytrue([for c in jsondecode(aws_ecs_task_definition.job["catalog"].container_definitions) :
+        c.name == "catalog" && anytrue([for e in c.environment :
+          e.name == "CATALOG_BUNDLE_S3" && e.value == var.config.catalog_bundle_s3
+        ])
+      ]) &&
       alltrue([for c in jsondecode(aws_ecs_task_definition.app.container_definitions) :
         c.readonlyRootFilesystem && c.startTimeout <= 120 && (c.name == "assets-init" || c.user == "10001:10001")
       ])
@@ -128,6 +134,13 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
     )
     error_message = "자산 읽기 Prefix와 Execution 역할별 Secret을 제한하고 DB 관리자 권한을 포함하지 않아야 함."
   }
+}
+
+run "production_without_catalog_bundle_is_rejected" {
+  command = plan
+  module { source = "../../../modules/ai_ecs_runtime" }
+  variables { config = merge(var.config, { catalog_bundle_s3 = null }) }
+  expect_failures = [terraform_data.guard]
 }
 
 run "activation_without_checks_is_rejected" {

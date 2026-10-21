@@ -28,6 +28,7 @@ deployment = null
 #   asset_prefix          = "ai/production/VERIFIED_RELEASE/"
 #   asset_manifest_key    = "ai/production/VERIFIED_RELEASE/manifest.json"
 #   asset_manifest_sha256 = "VERIFIED_MANIFEST_SHA256"
+#   catalog_bundle_s3     = "s3://VERIFIED_ASSET_BUCKET/ai/production/VERIFIED_RELEASE/catalog/catalog-bundle-VERIFIED_SHA256.tar"
 #   provider_models       = { chat = "TEAM_APPROVED_MODEL", profiler = "TEAM_APPROVED_MODEL" }
 #   desired_count         = 0
 # }

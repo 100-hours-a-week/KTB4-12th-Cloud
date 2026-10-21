@@ -37,6 +37,7 @@ variable "config" {
     asset_prefix                      = string
     asset_manifest_key                = string
     asset_manifest_sha256             = string
+    catalog_bundle_s3                 = optional(string)
     provider_models = object({
       chat     = string
       profiler = string
@@ -77,5 +78,14 @@ variable "config" {
       alltrue([for model in values(var.config.provider_models) : can(regex("^[A-Za-z0-9._/-]+$", model))])
     )
     error_message = "확인한 RDS Host·정확한 S3 Prefix/Manifest·인증정보 없는 Backend URL·명시적 모델 ID 필요."
+  }
+  validation {
+    condition = var.config.catalog_bundle_s3 == null || try(
+      startswith(var.config.catalog_bundle_s3, "s3://${var.config.asset_bucket}/${var.config.asset_prefix}") &&
+      can(regex("/catalog/catalog-bundle-[0-9a-f]{64}\\.tar$", var.config.catalog_bundle_s3)) &&
+      !strcontains(var.config.catalog_bundle_s3, ".."),
+      false
+    )
+    error_message = "Catalog Bundle은 승인된 AI 자산 버킷·Prefix의 SHA-256 고정 tar 객체여야 함."
   }
 }
