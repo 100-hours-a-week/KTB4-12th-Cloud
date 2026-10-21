@@ -1,4 +1,21 @@
 locals {
+  # 운영 t3.medium의 실제 ECS 잔여 MEMORY는 3327MiB(2026-10-21 조회).
+  # Task 3200MiB로 Host 배치 여유 127MiB를, 컨테이너 Hard Limit 합계
+  # 3008MiB로 Service Connect Proxy 몫 192MiB를 남긴 최초 기동용 상한이다.
+  # 이 값은 실측 RSS 보장이 아니며 최초 기동 후 OOM·Health를 관측한다.
+  app_memory = var.environment == "production" ? {
+    task       = 3200
+    asset_init = 192
+    search     = 1280
+    profiler   = 640
+    chat       = 896
+    } : {
+    task       = 4096
+    asset_init = 256
+    search     = 1536
+    profiler   = 1024
+    chat       = 1024
+  }
   common_environment = {
     AI_DATABASE_NAME        = "ai_db_${var.environment}"
     AI_DATABASE_HOST        = var.config.database_host
@@ -30,7 +47,7 @@ locals {
   }
   app_specs = {
     search = {
-      port    = 8000, memory = 1536
+      port    = 8000, memory = local.app_memory.search
       secrets = ["AI_INTERNAL_SERVICE_TOKEN", "SEARCH_CATALOG_DATABASE_URL"]
       environment = {
         SEARCH_RUNTIME_ROOT = "/runtime"
@@ -38,7 +55,7 @@ locals {
       }
     }
     profiler = {
-      port    = 8001, memory = 1024
+      port    = 8001, memory = local.app_memory.profiler
       secrets = ["AI_INTERNAL_SERVICE_TOKEN", "BE_SERVICE_TOKEN", "PROFILING_DATABASE_URL", "OPENROUTER_API_KEY_PROFILER"]
       environment = {
         AI_BUDGET_MODE             = "provider-key-limits"
@@ -49,7 +66,7 @@ locals {
       }
     }
     chat = {
-      port    = 7860, memory = 1024
+      port    = 7860, memory = local.app_memory.chat
       secrets = ["AI_INTERNAL_SERVICE_TOKEN", "BE_SERVICE_TOKEN", "DATABASE_URL", "OPENROUTER_API_KEY_CHAT", "SESSION_SECRET", "QA_ADMIN_PASSWORD", "DEMO_ACCESS_TOKEN"]
       environment = {
         AI_BUDGET_MODE  = "provider-key-limits"
@@ -66,7 +83,7 @@ locals {
     image                  = var.config.images.migrate
     essential              = false
     user                   = "0:0"
-    memory                 = 256
+    memory                 = local.app_memory.asset_init
     startTimeout           = 120
     readonlyRootFilesystem = true
     linuxParameters        = merge(local.linux_parameters, { capabilities = { drop = ["ALL"], add = ["CHOWN"] } })
@@ -129,7 +146,7 @@ resource "aws_ecs_task_definition" "app" {
   requires_compatibilities = ["EC2"]
   network_mode             = "awsvpc"
   cpu                      = "2048"
-  memory                   = "4096"
+  memory                   = tostring(local.app_memory.task)
   task_role_arn            = aws_iam_role.task["app"].arn
   execution_role_arn       = aws_iam_role.execution["app"].arn
   skip_destroy             = true

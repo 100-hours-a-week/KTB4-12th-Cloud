@@ -32,9 +32,11 @@ resource "terraform_data" "guard" {
         data.aws_security_group.backend.vpc_id == var.config.vpc_id &&
         data.aws_security_group.backend_export.vpc_id == var.config.vpc_id &&
         var.config.cluster_arn == "arn:aws:ecs:${var.aws_region}:${var.aws_account_id}:cluster/${local.prefix}-cluster" &&
-        startswith(var.config.capacity_provider, "${local.prefix}-")
+        (var.environment == "production" ?
+          var.config.capacity_provider == "${local.prefix}-ai" :
+        startswith(var.config.capacity_provider, "${local.prefix}-"))
       )
-      error_message = "서울 A Private Subnet·같은 VPC의 SG·해당 환경 ECS Cluster/Capacity Provider 필요."
+      error_message = "서울 A Private Subnet·같은 VPC의 SG·해당 환경 ECS Cluster/Capacity Provider 필요. 운영 AI는 전용 AI Capacity Provider 필수."
     }
     precondition {
       condition = alltrue([for target, image in var.config.images :
