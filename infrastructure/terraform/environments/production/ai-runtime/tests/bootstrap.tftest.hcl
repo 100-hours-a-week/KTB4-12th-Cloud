@@ -19,6 +19,7 @@ variables {
     subnet_id                         = "subnet-private-a"
     cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-production-cluster"
     capacity_provider                 = "seonjalal-v2-production-ai"
+    namespace_arn                     = "arn:aws:servicediscovery:ap-northeast-2:000000000000:namespace/ns-a1b2c3d4"
     database_host                     = "ai-db.example.ap-northeast-2.rds.amazonaws.com"
     database_client_security_group_id = "sg-ai-client"
     backend_security_group_id         = "sg-main-backend"

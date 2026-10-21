@@ -255,7 +255,7 @@ resource "aws_ecs_service" "ai" {
   }
   service_connect_configuration {
     enabled   = true
-    namespace = aws_service_discovery_http_namespace.services.arn
+    namespace = local.namespace_arn
     dynamic "service" {
       for_each = { chat = 7860, profiler = 8001 }
       content {

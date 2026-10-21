@@ -12,7 +12,8 @@ locals {
       }
     }]
   })
-  secret_kind = { app = "runtime", migrate = "migration", catalog = "catalog" }
+  secret_kind   = { app = "runtime", migrate = "migration", catalog = "catalog" }
+  namespace_arn = var.environment == "production" ? var.config.namespace_arn : aws_service_discovery_http_namespace.services[0].arn
 }
 
 data "aws_subnet" "app" { id = var.config.subnet_id }
@@ -166,7 +167,14 @@ resource "aws_vpc_security_group_ingress_rule" "backend_export" {
   to_port                      = 443
 }
 
-# BE Main/Payment도 같은 Namespace를 사용하도록 후속 Root에서 이 ARN을 참조한다.
+# 스테이징의 기존 State 주소를 인덱스 0으로 이동하고 리소스는 그대로 보존한다.
+moved {
+  from = aws_service_discovery_http_namespace.services
+  to   = aws_service_discovery_http_namespace.services[0]
+}
+
+# 운영 공용 Namespace는 별도 State가 소유한다. 스테이징만 기존 Namespace를 계속 관리한다.
 resource "aws_service_discovery_http_namespace" "services" {
-  name = "${local.prefix}-services"
+  count = var.environment == "staging" ? 1 : 0
+  name  = "${local.prefix}-services"
 }

@@ -33,6 +33,7 @@ variables {
     subnet_id                         = "subnet-private-a"
     cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-production-cluster"
     capacity_provider                 = "seonjalal-v2-production-ai"
+    namespace_arn                     = "arn:aws:servicediscovery:ap-northeast-2:000000000000:namespace/ns-a1b2c3d4"
     database_host                     = "production-ai.example.ap-northeast-2.rds.amazonaws.com"
     database_client_security_group_id = "sg-ai-client"
     backend_security_group_id         = "sg-main-backend"
@@ -116,6 +117,8 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
       aws_ecs_service.ai.deployment_minimum_healthy_percent == 0 &&
       aws_ecs_service.ai.deployment_maximum_percent == 100 &&
       aws_ecs_service.ai.deployment_circuit_breaker[0].rollback &&
+      aws_ecs_service.ai.service_connect_configuration[0].namespace == var.config.namespace_arn &&
+      length(aws_service_discovery_http_namespace.services) == 0 &&
       anytrue([for svc in aws_ecs_service.ai.service_connect_configuration[0].service :
         svc.discovery_name == "ai-chat" && svc.timeout[0].per_request_timeout_seconds == 0
       ]) &&
@@ -134,6 +137,13 @@ run "prepared_runtime_preserves_localhost_and_job_boundaries" {
     )
     error_message = "자산 읽기 Prefix와 Execution 역할별 Secret을 제한하고 DB 관리자 권한을 포함하지 않아야 함."
   }
+}
+
+run "production_without_shared_namespace_is_rejected" {
+  command = plan
+  module { source = "../../../modules/ai_ecs_runtime" }
+  variables { config = merge(var.config, { namespace_arn = null }) }
+  expect_failures = [var.config]
 }
 
 run "production_without_catalog_bundle_is_rejected" {
