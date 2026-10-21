@@ -59,6 +59,19 @@ class BootstrapTests(unittest.TestCase):
             self.assertTrue((root / "media").is_dir())
             self.assertEqual(list((root / "media").iterdir()), [])
 
+    def test_runtime_permissions_are_set_before_ownership_transfer(self):
+        calls = []
+        original_chmod, original_chown = assets.os.chmod, assets.os.chown
+        try:
+            assets.os.chmod = lambda path, mode: calls.append(("chmod", path, mode))
+            assets.os.chown = lambda path, uid, gid: calls.append(("chown", path, uid, gid))
+            assets.prepare_runtime_directory("/runtime")
+        finally:
+            assets.os.chmod, assets.os.chown = original_chmod, original_chown
+        self.assertEqual(calls, [("chown", "/runtime", 0, 0),
+                                 ("chmod", "/runtime", 0o700),
+                                 ("chown", "/runtime", 10001, 10001)])
+
     def test_changed_manifest_is_rejected_before_download(self):
         with self.assertRaisesRegex(ValueError, "HASH"):
             assets.validate_manifest(b"{}", "0" * 64, "release/", MODEL)

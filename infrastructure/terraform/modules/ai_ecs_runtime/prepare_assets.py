@@ -65,6 +65,14 @@ def prepare_media_directory(root):
     (root / "media").mkdir(parents=True, exist_ok=True)
 
 
+def prepare_runtime_directory(path):
+    # 새 ECS Volume의 초기 소유자와 무관하게 root 소유로 만든 뒤 모드를 설정한다.
+    # Init에는 CHOWN만 추가되므로 앱 사용자에게 소유자를 넘긴 후 chmod하면 실패한다.
+    os.chown(path, 0, 0)
+    os.chmod(path, 0o700)
+    os.chown(path, 10001, 10001)
+
+
 def main():
     import boto3
     from botocore.config import Config
@@ -82,8 +90,7 @@ def main():
     directory = Path("/shared/tls")
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "rds-ca.pem").write_text(os.environ["RDS_CA_PEM"])
-    os.chown("/runtime", 10001, 10001)
-    os.chmod("/runtime", 0o700)
+    prepare_runtime_directory("/runtime")
     print("AI_ASSETS_AND_CA_VERIFIED")
 
 
