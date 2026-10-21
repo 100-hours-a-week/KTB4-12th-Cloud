@@ -63,7 +63,7 @@ resource "aws_vpc_security_group_egress_rule" "node_https" {
 resource "aws_launch_template" "node" {
   name_prefix            = "${local.name}-ecs-"
   image_id               = data.aws_ssm_parameter.ecs_ami.value
-  instance_type          = "t3.medium"
+  instance_type          = "t3.large"
   vpc_security_group_ids = [aws_security_group.node.id]
   iam_instance_profile {
     arn = aws_iam_instance_profile.node.arn
@@ -120,7 +120,7 @@ resource "aws_autoscaling_group" "node" {
   name                      = "${local.name}-ecs-application"
   min_size                  = 2
   desired_capacity          = 2
-  max_size                  = 2
+  max_size                  = 3
   vpc_zone_identifier       = sort(tolist(local.app_subnets))
   health_check_type         = "EC2"
   health_check_grace_period = 300
