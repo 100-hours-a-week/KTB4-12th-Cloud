@@ -1,0 +1,5 @@
+bucket       = "REPLACE_WITH_EXISTING_TERRAFORM_STATE_BUCKET"
+key          = "v2/staging/be-split-runtime/terraform.tfstate"
+region       = "ap-northeast-2"
+encrypt      = true
+use_lockfile = true
