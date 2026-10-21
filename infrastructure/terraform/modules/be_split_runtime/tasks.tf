@@ -194,8 +194,13 @@ resource "aws_lb_listener_rule" "main_cutover" {
   }
   lifecycle {
     precondition {
-      condition     = var.config.desired_count >= 2 && var.config.traffic_health_verified && alltrue(values(var.config.activation_checks))
-      error_message = "Main Target Health와 승인된 트래픽 전환 전 Listener Rule 생성 금지."
+      condition = (
+        var.config.desired_count >= 2 &&
+        var.config.traffic_health_verified &&
+        alltrue(values(var.config.activation_checks)) &&
+        (var.environment != "production" || var.config.listener_rule_priority == 9)
+      )
+      error_message = "Main Target Health·승인된 전환 및 운영 Origin Listener 우선순위 9 확인 전 Rule 생성 금지."
     }
   }
 }
