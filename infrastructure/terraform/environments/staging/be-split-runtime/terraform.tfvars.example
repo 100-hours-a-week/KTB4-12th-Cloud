@@ -1,0 +1,3 @@
+# 대상 계정을 직접 확인한 뒤 교체. 운영 출시 전에는 deployment=null 유지.
+aws_account_id = "000000000000"
+deployment     = null

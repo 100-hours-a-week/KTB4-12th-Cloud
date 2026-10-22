@@ -1,0 +1,22 @@
+# AI 운영 ECS 실행 경계
+
+- 독립 State: `v2/production/ai-runtime/terraform.tfstate`. 기존 운영 BE Service·Listener·ASG와 분리
+- 기본 `deployment = null`: AWS 리소스 0개. Task Definition/Service를 이미 등록했다는 뜻이 아님
+- 실제 Digest·DB·SG·자산/Manifest·Backend 계약 입력 시 `desired_count=0`으로 Task Definition·Service 및 Secret Metadata 준비 가능
+- Service Connect Namespace `seonjalal-v2-production-services`는 별도 `production/service-connect-namespace` State가 소유한다. 운영 `deployment.namespace_arn`에는 그 Root의 실제 출력 ARN을 입력하고, 이 Root에서는 Namespace를 중복 생성하지 않는다. 스테이징은 기존 자체 Namespace를 계속 관리한다.
+- `desired_count=1` 기동은 DB Migration·Catalog·Network·Capacity·Runtime·Secret·Provider 비용 승인 체크가 모두 참일 때만 허용
+- 서울 A Private App Subnet 한 곳에 AI 단일 Task 배치. 가용성보다 비용 우선이며 Task/Host/AZ 장애 중단을 허용
+- AI 전용 `t3.medium` Host는 ECS 등록 후 잔여 MEMORY 3327MiB·CPU2048을 실조회(2026-10-21). App Task는 CPU2048·메모리3200MiB, 컨테이너 Hard Limit 합계3008MiB로 Proxy192MiB와 Host 배치 여유127MiB를 남긴 최초 기동용 계약. 운영 입력은 BE용이 아닌 `seonjalal-v2-production-ai` Capacity Provider로 고정
+- 이 계산은 배치 가능성만 다루며 안정적 실행의 증거가 아님. `capacity_verified=true` 입력 전 Service desired0과 등록 Host의 가용 CPU·메모리 대조 필요. Service Connect Proxy 포함 실제 사용량은 최초 desired1에서 관측하고, OOM·Health 실패 시 desired0으로 복귀한 뒤 Host 크기 또는 Task 분리 설계를 다시 결정
+- 운영 AI PostgreSQL Endpoint·Client SG를 사용. RDS 관리자 Secret을 Task에 주입하지 않고, pgvector/Role Bootstrap·Migration을 별도 승인 단계로 수행
+- 첫 DB Bootstrap은 별도 승인된 일회성 ECS Task로만 실행한다. `bootstrap_admin_secret_arn`과 4시간 이내 `bootstrap_expires_at`을 입력하면 Task Definition만 등록하며 자동 실행은 없다. 이 Task의 실행 역할만 RDS 관리형 Secret을 읽고, Task 역할은 정확히 AI runtime/migration/catalog Secret 세 개에 초기 DB DSN을 기록한다. 관리자 비밀번호·앱 비밀번호·DSN은 Terraform State나 Task의 출력에 기록하지 않는다. 역할 생성 SQL에는 평문 비밀번호 대신 클라이언트에서 만든 SCRAM 검증값만 전달한다. 운영 DB가 이미 마이그레이션됐거나 기존 Secret에 DB 외 키가 있으면 덮어쓰지 않고 중단한다.
+- Bootstrap 성공 출력의 `roles_verified` 5개와 `vector_ready=true`는 DB 접속·역할 확인만 뜻한다. 이어서 기존 `migrate` Job을 **별도로 한 번** 실행해야 Alembic `0011`과 통합 스키마/권한이 생성된다. 앱 Service 기동은 마이그레이션을 자동 실행하지 않는다. Bootstrap·Migration은 모두 desired=0 상태에서 수동 실행한다.
+- 2026-10-22 운영 Migration 첫 실행은 Python `ConfigParser`가 Secret DSN의 `%2F`를 해석하다 실패했고, CloudWatch 로그에 현재 `ai_migrator` 비밀번호가 포함된 것이 값 비노출 대조로 확인됐다. 로그 원문·Secret 값을 채팅/PR/이슈에 붙여넣지 말고, 기존 Migration Task 재실행이나 앱 Service 기동을 금지한다. 별도 `migration_rotation` Task Definition은 등록만 하며 자동 실행되지 않는다. 승인된 단 한 번의 실행에서 해당 역할 비밀번호를 클라이언트 생성 SCRAM 검증값으로 변경하고, `%` 없는 CA 경로의 새 DSN을 Migration Secret에 기록한 뒤 새 로그인까지 검증한다. 완료·비밀번호 폐기·로그 접근 점검 전에는 Migration을 재시도하지 않는다.
+- 부트스트랩 Task는 운영 AI 전용 Capacity Provider와 DB Client SG/Task SG를 사용해야 한다. 실행 후 `exitCode=0`·CloudWatch 성공 출력 확인 전에는 Migration으로 진행하지 않는다. Secret 쓰기 IAM 권한은 만료 시각 이후 효력이 없어지며, 부트스트랩 전용 Role/Task/Endpoint SG Rule의 코드·State 정리는 별도 후속 작업이다.
+- 이 Task는 기존 AI Runtime Root에 붙어 있으므로 실제 `deployment` 입력과 runtime Secret Metadata가 먼저 필요하다. BE URL·모델 ID를 모르는데 형식만 맞춘 가짜 값으로 Plan/Apply하지 않는다. 이 입력이 확정되지 않으면 Bootstrap Task 등록도 대기한다.
+- Secrets Manager에는 runtime/migration/catalog Secret Metadata만 생성. 실제 JSON 값은 Terraform State에 넣지 않음
+- 동일 AI main SHA의 운영 ECR Digest 네 개, 승인된 모델 S3 Manifest·Hash, BE Export/Callback/Token 계약 필요. 초기 상품 이미지는 BE의 기존 S3 경로가 제공하며 AI `/media`는 비어 있음
+- 첫 운영 Catalog Job은 같은 자산 Prefix의 SHA-256 이름 tar를 `catalog_bundle_s3`로 받아 임베딩 재생성 없이 `catalog_bundle.py --apply`를 실행. 이때 BE Export/Categories URL은 입력하지 않으며 Task에도 전달하지 않음. Bundle이 없는 스테이징에서는 검증된 동일 Origin의 HTTPS Export/Categories URL 두 개가 필수. ECS Job 실행 전에 해당 AI Image에 `catalog_bundle.py`가 포함됐는지 확인 필요. Parameter Store 값을 변경해도 현재 Task Definition에는 자동 주입되지 않음
+- regional RDS 공개 CA는 `staging/rehearsal/certs`의 동일 서울 Bundle 파일을 코드 자산으로 재사용. 비밀키가 아니며 앱 DSN `sslmode=verify-full` 검증 필요
+- Cloud CD의 AI 배포 경로는 아직 미구현. Terraform Service/Task 템플릿 등록과 실제 Revision 배포의 소유권을 구분
+- 실제 `terraform.tfvars`, `backend.hcl`, State, Plan, Secret 값은 커밋 금지. 신규 비용/권한/Task 생성은 병합 후 저장 Plan과 별도 승인 필요

@@ -1,0 +1,8 @@
+# 기존 네트워크 실조회 결과로 로컬 terraform.tfvars 작성. 예시 그대로 Apply 금지.
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+vpc_id         = "vpc-REPLACE"
+data_subnet_ids = ["subnet-DATA_A", "subnet-DATA_C"]
+
+# 최소 기동 시험용. 부하/메모리/연결 수 확인 후 필요 시 small 검토.
+database_instance_class = "db.t4g.micro"

@@ -1,0 +1,33 @@
+aws_account_id = "000000000000"
+aws_profile    = "YOUR_AWS_PROFILE"
+
+# 운영 출시 후 실제 Image/DB/자산/Secret 준비값으로 구성. 현재는 미생성 유지.
+deployment = null
+
+# 아래는 입력 형태 안내이며 그대로 사용할 수 없는 예시다.
+# deployment = {
+#   vpc_id                            = "vpc-REPLACE"
+#   subnet_id                         = "subnet-PRIVATE_A"
+#   cluster_arn                       = "arn:aws:ecs:ap-northeast-2:000000000000:cluster/seonjalal-v2-staging-cluster"
+#   capacity_provider                 = "seonjalal-v2-staging-application"
+#   database_host                     = "VERIFIED_STAGING_RDS_ENDPOINT"
+#   database_client_security_group_id = "sg-FROM_AI_DATABASE_OUTPUT"
+#   backend_security_group_id         = "sg-VERIFIED_STAGING_MAIN_BACKEND"
+#   backend_export_security_group_id  = "sg-VERIFIED_BACKEND_HTTPS_ALB"
+#   backend_base_url                  = "http://main-backend:8080"
+#   backend_export_url                = "https://VERIFIED_BACKEND/VERIFIED_EXPORT_PATH"
+#   backend_categories_url            = "https://VERIFIED_BACKEND/VERIFIED_CATEGORIES_PATH"
+#   source_sha                        = "FULL_AI_MAIN_COMMIT_SHA"
+#   images = {
+#     chat     = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/ai-chat@sha256:REPLACE"
+#     profiler = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/ai-profiler@sha256:REPLACE"
+#     search   = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/ai-search@sha256:REPLACE"
+#     migrate  = "000000000000.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/staging/ai-migrate@sha256:REPLACE"
+#   }
+#   asset_bucket          = "VERIFIED_ASSET_BUCKET"
+#   asset_prefix          = "ai/staging/VERIFIED_RELEASE/"
+#   asset_manifest_key    = "ai/staging/VERIFIED_RELEASE/manifest.json"
+#   asset_manifest_sha256 = "VERIFIED_MANIFEST_SHA256"
+#   provider_models       = { chat = "TEAM_APPROVED_MODEL", profiler = "TEAM_APPROVED_MODEL" }
+#   desired_count         = 0
+# }

@@ -79,6 +79,71 @@ variables {
   enable_alb                         = false
 }
 
+run "ai_publisher_limits_identity_and_permissions" {
+  command = plan
+
+  override_data {
+    target = data.aws_iam_openid_connect_provider.ai_publisher
+    values = { arn = "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com" }
+  }
+  override_resource {
+    target          = aws_ecr_repository.ai["chat"]
+    override_during = plan
+    values          = { arn = "arn:aws:ecr:ap-northeast-2:000000000000:repository/seonjalal/staging/ai-chat" }
+  }
+  override_resource {
+    target          = aws_ecr_repository.ai["migrate"]
+    override_during = plan
+    values          = { arn = "arn:aws:ecr:ap-northeast-2:000000000000:repository/seonjalal/staging/ai-migrate" }
+  }
+  override_resource {
+    target          = aws_ecr_repository.ai["profiler"]
+    override_during = plan
+    values          = { arn = "arn:aws:ecr:ap-northeast-2:000000000000:repository/seonjalal/staging/ai-profiler" }
+  }
+  override_resource {
+    target          = aws_ecr_repository.ai["search"]
+    override_during = plan
+    values          = { arn = "arn:aws:ecr:ap-northeast-2:000000000000:repository/seonjalal/staging/ai-search" }
+  }
+
+  assert {
+    condition = jsondecode(aws_iam_role.ai_image_publisher.assume_role_policy) == {
+      Version = "2012-10-17"
+      Statement = [{
+        Effect    = "Allow"
+        Action    = "sts:AssumeRoleWithWebIdentity"
+        Principal = { Federated = "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com" }
+        Condition = { StringEquals = {
+          "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+          "token.actions.githubusercontent.com:sub" = "repo:100-hours-a-week@167328634/KTB4-12th-AI@1344623933:ref:refs/heads/main"
+        } }
+      }]
+    }
+    error_message = "AI main의 불변 owner/repository ID와 STS audience만 허용해야 함. PR/develop/다른 저장소 허용 금지."
+  }
+
+  assert {
+    condition = (
+      length(jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement) == 2 &&
+      jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[0].Effect == "Allow" &&
+      toset(jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[0].Action) == toset(["ecr:GetAuthorizationToken"]) &&
+      jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[0].Resource == "*" &&
+      jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[1].Effect == "Allow" &&
+      toset(jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[1].Resource) == toset([
+        for workload in ["chat", "migrate", "profiler", "search"] :
+        "arn:aws:ecr:ap-northeast-2:000000000000:repository/seonjalal/staging/ai-${workload}"
+      ]) &&
+      toset(jsondecode(aws_iam_role_policy.ai_image_publish.policy).Statement[1].Action) == toset([
+        "ecr:BatchCheckLayerAvailability", "ecr:BatchGetImage", "ecr:CompleteLayerUpload",
+        "ecr:DescribeImages", "ecr:DescribeRepositories", "ecr:GetDownloadUrlForLayer",
+        "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart",
+      ])
+    )
+    error_message = "로그인 Token 외에는 스테이징 AI4개 발행·조회만 허용. ECS/IAM/Secret/삭제/다른 환경 권한 추가 금지."
+  }
+}
+
 run "startup_failure_is_disabled_by_default" {
   command = plan
   assert {
@@ -251,6 +316,27 @@ run "execution_role_reads_only_selected_runtime_secret" {
 
 run "empty_platform_is_safe" {
   command = plan
+  assert {
+    condition = (
+      toset(keys(aws_ecr_repository.ai)) == toset(["chat", "migrate", "profiler", "search"]) &&
+      alltrue([for workload, repository in aws_ecr_repository.ai :
+        repository.name == "seonjalal/staging/ai-${workload}" &&
+        repository.image_tag_mutability == "IMMUTABLE" &&
+        !repository.force_delete &&
+        repository.image_scanning_configuration[0].scan_on_push &&
+        repository.encryption_configuration[0].encryption_type == "AES256"
+      ])
+    )
+    error_message = "AI 스테이징 ECR 4개는 불변 태그·스캔·암호화·강제 삭제 금지 계약 필요."
+  }
+  assert {
+    condition = alltrue([for policy in aws_ecr_lifecycle_policy.ai :
+      jsondecode(policy.policy).rules[0].selection.tagStatus == "untagged" &&
+      jsondecode(policy.policy).rules[0].selection.countType == "sinceImagePushed" &&
+      jsondecode(policy.policy).rules[0].selection.countNumber == 7
+    ])
+    error_message = "AI ECR은 태그된 롤백 Artifact를 보존하고 미태그 이미지만 7일 후 정리해야 함."
+  }
   assert {
     condition     = aws_secretsmanager_secret.backend_runtime.name == "seonjalal/staging/backend/runtime" && aws_secretsmanager_secret.backend_runtime.recovery_window_in_days == 7
     error_message = "런타임 Secret은 전용 이름/삭제 복구 기간 필요. Secret 값은 Terraform에서 관리 금지."

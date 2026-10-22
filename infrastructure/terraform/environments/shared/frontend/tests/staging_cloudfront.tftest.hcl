@@ -35,9 +35,9 @@ run "production_read_preserves_staging" {
       jsondecode(aws_s3_bucket_policy.frontend_cloudfront[0].policy).Statement[1].Action == "s3:GetObject" &&
       jsondecode(aws_s3_bucket_policy.frontend_cloudfront[0].policy).Statement[1].Principal.Service == "cloudfront.amazonaws.com" &&
       jsondecode(aws_s3_bucket_policy.frontend_cloudfront[0].policy).Statement[1].Condition.StringEquals["AWS:SourceArn"] == var.production_distribution_arn &&
-      endswith(jsondecode(aws_s3_bucket_policy.frontend_cloudfront[0].policy).Statement[1].Resource, "/frontend/production/v1-1.3.2-1c8d3e7232a2/*")
+      endswith(jsondecode(aws_s3_bucket_policy.frontend_cloudfront[0].policy).Statement[1].Resource, "/frontend/production/*")
     )
-    error_message = "Stage 허용 유지 및 정확한 운영 Distribution·Prefix의 GetObject만 허용해야 한다."
+    error_message = "Stage 허용 유지 및 정확한 운영 Distribution·환경 Prefix의 GetObject만 허용해야 한다."
   }
 }
 

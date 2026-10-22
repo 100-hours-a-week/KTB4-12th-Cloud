@@ -1,7 +1,10 @@
 locals {
-  # 현재 운영 FE 이미지의 고정 Digest에 대응하는 새 불변 Prefix만 사용.
+  # 기존 V1 일회성 업로드 권한은 원래 버전 Prefix에 계속 고정한다.
   asset_prefix = "frontend/production/v1-1.3.2-1c8d3e7232a2"
-  bucket_name  = "seonjalal-v2-frontend-${var.aws_account_id}-ap-northeast-2"
+  # FE CD는 검증한 정적 릴리스를 이 환경 Prefix에 배치한다. 실제 원본 전환은
+  # 새 index.html과 자산을 먼저 배치·검증한 후 별도 저장 Plan 승인으로 진행한다.
+  static_origin_prefix = "frontend/production"
+  bucket_name          = "seonjalal-v2-frontend-${var.aws_account_id}-ap-northeast-2"
 }
 data "aws_s3_bucket" "frontend" {
   bucket = local.bucket_name
@@ -103,7 +106,7 @@ resource "aws_cloudfront_distribution" "production" {
   origin {
     domain_name              = data.aws_s3_bucket.frontend.bucket_regional_domain_name
     origin_id                = "production-s3"
-    origin_path              = "/${local.asset_prefix}"
+    origin_path              = "/${local.static_origin_prefix}"
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
   origin {
