@@ -3,7 +3,8 @@ locals {
     fullstack = ["fs-neo", "fs-theo", "fs-ava"]
     ai        = ["ai-dylan", "ai-emet"]
   }
-  new_users = toset(["fs-neo", "fs-ava", "ai-dylan", "ai-emet"])
+  # fs-theo는 기존 사용자를 삭제하고 같은 이름으로 재생성하여 Terraform이 관리(전원 동일한 방식).
+  new_users = toset(["fs-neo", "fs-theo", "fs-ava", "ai-dylan", "ai-emet"])
   stores = {
     for pair in setproduct(["develop", "staging"], keys(local.teams)) :
     "${pair[0]}/${pair[1]}" => { environment = pair[0], team = pair[1] }
@@ -23,9 +24,6 @@ locals {
   ]
 }
 
-# 기존 Theo 신원은 조회만 수행. 가져오기/재생성/기존 권한 자동 회수 없음.
-data "aws_iam_user" "theo" { user_name = "fs-theo" }
-
 resource "aws_iam_user" "member" {
   for_each      = local.new_users
   name          = each.value
@@ -44,7 +42,7 @@ resource "aws_iam_group_membership" "team" {
   name       = "seonjalal-${each.key}-settings-members"
   group      = aws_iam_group.team[each.key].name
   users      = each.value
-  depends_on = [aws_iam_user.member, data.aws_iam_user.theo]
+  depends_on = [aws_iam_user.member]
 }
 
 # 빈 Secret의 메타데이터만 관리. 비밀값/초기 로그인 비밀번호를 State에 저장하지 않음.
