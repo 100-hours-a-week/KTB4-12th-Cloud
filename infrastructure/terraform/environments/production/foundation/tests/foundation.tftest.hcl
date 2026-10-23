@@ -74,8 +74,8 @@ run "production_database_exports_only_error_log" {
   command = plan
   variables { enable_database = true }
   assert {
-    condition     = toset(aws_db_instance.production[0].enabled_cloudwatch_logs_exports) == toset(["error"]) && aws_db_instance.production[0].parameter_group_name == "default.mysql8.4"
-    error_message = "MySQL은 에러 로그만 내보내고 파라미터 그룹은 변경 금지(재부팅 유발)."
+    condition     = toset(aws_db_instance.production[0].enabled_cloudwatch_logs_exports) == toset(["error"]) && aws_db_instance.production[0].parameter_group_name == "seonjalal-v2-production-mysql84"
+    error_message = "MySQL은 에러 로그만 내보내고 실제 운영 커스텀 파라미터 그룹을 유지(변경 시 재부팅 유발)."
   }
   assert {
     condition     = aws_cloudwatch_log_group.mysql_error[0].name == "/aws/rds/instance/seonjalal-v2-production/error" && aws_cloudwatch_log_group.mysql_error[0].retention_in_days == 30

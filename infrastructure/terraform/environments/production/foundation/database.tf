@@ -11,11 +11,13 @@ resource "aws_cloudwatch_log_group" "mysql_error" {
 resource "aws_db_instance" "production" {
   count = var.enable_database ? 1 : 0
 
-  identifier                  = "seonjalal-v2-production"
-  engine                      = "mysql"
-  engine_version              = "8.4.11"
-  instance_class              = var.database_instance_class
-  parameter_group_name        = "default.mysql8.4"
+  identifier     = "seonjalal-v2-production"
+  engine         = "mysql"
+  engine_version = "8.4.11"
+  instance_class = var.database_instance_class
+  # 실제 운영 DB가 쓰는 커스텀 그룹(BE 2.0.0 마이그레이션용, log_bin_trust_function_creators=1). Terraform 관리 밖에서 생성됨.
+  # default.mysql8.4로 바꾸면 파라미터 설정이 사라지고 재부팅(Multi-AZ 페일오버)이 필요하므로 코드를 실제 값에 맞춤.
+  parameter_group_name        = "seonjalal-v2-production-mysql84"
   allocated_storage           = 20
   max_allocated_storage       = var.database_max_storage_gib
   storage_type                = "gp3"
