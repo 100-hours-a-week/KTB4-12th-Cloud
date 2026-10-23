@@ -70,6 +70,18 @@ run "production_database_protected_candidate" {
     error_message = "저장공간 상한 유지 및 빈 DB를 이전 완료로 표시 금지."
   }
 }
+run "production_database_exports_only_error_log" {
+  command = plan
+  variables { enable_database = true }
+  assert {
+    condition     = toset(aws_db_instance.production[0].enabled_cloudwatch_logs_exports) == toset(["error"]) && aws_db_instance.production[0].parameter_group_name == "default.mysql8.4"
+    error_message = "MySQL은 에러 로그만 내보내고 파라미터 그룹은 변경 금지(재부팅 유발)."
+  }
+  assert {
+    condition     = aws_cloudwatch_log_group.mysql_error[0].name == "/aws/rds/instance/seonjalal-v2-production/error" && aws_cloudwatch_log_group.mysql_error[0].retention_in_days == 30
+    error_message = "에러 로그 그룹 이름은 RDS 규칙과 일치하고 보존 30일 필요."
+  }
+}
 run "reject_storage_cost_ceiling" {
   command = plan
   variables { database_max_storage_gib = 200 }

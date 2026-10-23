@@ -1,3 +1,12 @@
+# MySQL 에러 로그의 CloudWatch 보존 기간을 Terraform이 직접 관리. RDS가 먼저 자동 생성하면 보존이 무기한이 됨.
+# 이름은 RDS 규칙(/aws/rds/instance/<식별자>/<로그종류>)과 일치해야 하며 팀 로그 읽기 정책(team-settings)이 같은 이름을 허용.
+# 슬로우 쿼리·일반 로그는 커스텀 파라미터 그룹과 재부팅이 필요해 이 변경에 포함하지 않음.
+resource "aws_cloudwatch_log_group" "mysql_error" {
+  count             = var.enable_database ? 1 : 0
+  name              = "/aws/rds/instance/seonjalal-v2-production/error"
+  retention_in_days = 30
+}
+
 # 2단계: 운영 전용 빈 DB만 준비. Source/리허설 데이터 복원·접속 전환 없음.
 resource "aws_db_instance" "production" {
   count = var.enable_database ? 1 : 0
@@ -19,23 +28,25 @@ resource "aws_db_instance" "production" {
   username                    = "seonjalal_admin"
   manage_master_user_password = true
   backup_retention_period     = 7
-  backup_window               = "19:00-19:30"
-  maintenance_window          = "sun:20:00-sun:21:00"
-  copy_tags_to_snapshot       = true
-  deletion_protection         = true
-  skip_final_snapshot         = false
-  final_snapshot_identifier   = "seonjalal-v2-production-final"
-  delete_automated_backups    = false
-  auto_minor_version_upgrade  = false
-  allow_major_version_upgrade = false
-  apply_immediately           = false
+  # 에러 로그만 내보냄. 재부팅·파라미터 그룹 변경 없이 적용되는 설정.
+  enabled_cloudwatch_logs_exports = ["error"]
+  backup_window                   = "19:00-19:30"
+  maintenance_window              = "sun:20:00-sun:21:00"
+  copy_tags_to_snapshot           = true
+  deletion_protection             = true
+  skip_final_snapshot             = false
+  final_snapshot_identifier       = "seonjalal-v2-production-final"
+  delete_automated_backups        = false
+  auto_minor_version_upgrade      = false
+  allow_major_version_upgrade     = false
+  apply_immediately               = false
 
   # 관리자 비밀번호는 RDS가 Secrets Manager에 관리. Terraform 비밀값 입력 금지.
   # 스키마명은 운영 Source 확인·마이그레이션 절차에서 결정하므로 db_name 미지정.
   lifecycle {
     prevent_destroy = true
   }
-  depends_on = [terraform_data.network_guard, aws_vpc_security_group_ingress_rule.database_from_backend]
+  depends_on = [terraform_data.network_guard, aws_vpc_security_group_ingress_rule.database_from_backend, aws_cloudwatch_log_group.mysql_error]
 }
 
 output "production_database_candidate" {
