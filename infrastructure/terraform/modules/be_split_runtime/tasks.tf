@@ -14,7 +14,8 @@ locals {
     AWS_EC2_METADATA_DISABLED                   = "true"
   }
   main_environment = merge(var.config.main_environment, local.base_environment, {
-    AI_CHAT_BASE_URL              = "http://ai-chat:7860"
+    # BE가 이 값 뒤에 "/{대화ID}"와 "/{대화ID}/turns/{turnId}/events"를 붙이므로 챗봇 API 경로까지 포함해야 함(끝에 / 금지).
+    AI_CHAT_BASE_URL              = "http://ai-chat:7860/v1/chat/conversations"
     AI_PROFILE_BASE_URL           = "http://ai-profiler:8001"
     PAYMENT_SERVER_BASE_URL       = "http://payment-server:8090"
     SCHEDULING_ENABLED            = tostring(var.config.scheduling_enabled)
