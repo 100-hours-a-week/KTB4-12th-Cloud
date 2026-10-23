@@ -1,4 +1,35 @@
 #!/usr/bin/env python3
+# ==============================================================================
+# V2 릴리스 배포 스크립트 (GitHub Actions cd-v2.yml에서만 실행 가능)
+# ------------------------------------------------------------------------------
+# 역할
+#   - BE: ECR 이미지 태그를 digest로 고정 -> 현재 ECS Task Definition을 복제해 이미지만 교체
+#     -> 새 revision 등록 -> ECS Service 갱신 -> 안정화 확인.
+#   - FE: ECR 이미지에서 정적 파일을 꺼내 S3(frontend/<env>/)에 업로드 -> CloudFront 무효화.
+# 트리거/호출
+#   - cd-v2.yml 의 "Validate all targets..." 단계. 로컬/다른 워크플로에서 실행하면 main()이 거부.
+#   - --apply가 없으면 읽기 전용 검증만 한다(AWS 변경 API는 Aws 래퍼가 차단).
+# 입력 -> 출력
+#   - 입력: --environment --component --backend-version --frontend-version --backend-layout
+#     --compatibility-reviewed --state-dir [--apply], 환경변수 V2_FRONTEND_BUCKET 등.
+#   - 출력: state-dir/receipt.json(서비스, 이전/신규 Task Definition, 이미지 참조, 롤백 결과),
+#     stdout 마커(V2_RELEASE_VALIDATED_NO_AWS_WRITE / V2_RELEASE_DEPLOYED_AND_INFRA_HEALTH_VERIFIED),
+#     실패 시 stderr "STOP: 사유"와 종료 코드 1. 오류 원문은 노출하지 않는다(Secret 유출 방지).
+# 전체 흐름(deliver)
+#   1) AWS 계정 일치 확인 -> 2) 선택된 모든 대상 사전 검증(prepare_*) -> 3) receipt 기록
+#   -> 4) apply가 아니면 여기서 종료 -> 5) BE 서비스를 순서대로 갱신 -> 6) FE 업로드
+#   -> 7) 실패 시 FE index.html 복구 + BE 이전 revision 복구 시도
+# 실패/롤백 범위
+#   - 복구 대상은 "앱"(ECS revision, S3 index.html)뿐. DB 스키마/데이터는 자동 복구하지 않으며
+#     그래서 호환성 검토 체크(--compatibility-reviewed)와 Flyway 비활성 조건을 강제한다.
+#   - FE 새 assets는 업로드된 채 남지만 index.html이 이전 것으로 돌아가면 참조되지 않는다.
+#   - 자동 복구가 실패하면 receipt.rollback에 "manual intervention required" 기록.
+# 이미지 저장소 규약(코드로 확인)
+#   - BE: ECR seonjalal/production/backend, 태그 payment-server-<v> / main-backend-<v> / v1-<v>-amd64
+#   - FE: ECR seonjalal/production/frontend, 태그 <v>. (staging도 이 저장소를 사용)
+#   - ECR 태그가 IMMUTABLE이 아니면 거부한다. 태그를 게시하는 쪽은 FE/BE 저장소의 CI이며
+#     이 파일에서는 태그 규약만 확인 가능.
+# ==============================================================================
 """V2 수동 Delivery: ECR Digest 고정→ECS Service 갱신/S3 정적 배포. 기본은 읽기 검증만."""
 import argparse
 import copy
@@ -12,16 +43,22 @@ import subprocess
 import sys
 import tempfile
 
+# 배포 대상 AWS 계정/리전/FE 버킷 이름은 코드에 고정. 다른 계정이면 deliver()가 거부한다.
 ACCOUNT = "721744297924"
 REGION = "ap-northeast-2"
 REGISTRY = f"{ACCOUNT}.dkr.ecr.{REGION}.amazonaws.com"
 BUCKET = f"seonjalal-v2-frontend-{ACCOUNT}-{REGION}"
+# AWS를 "변경"하는 API 목록. --apply 없이 이 목록의 호출을 시도하면 Aws 래퍼가 차단(dry-run 안전장치).
+# 새 변경 API를 추가하면 반드시 여기에도 넣어야 dry-run 보호가 유지된다.
 MUTATIONS = {"register-task-definition", "update-service", "put-object", "create-invalidation"}
+# describe-task-definition 결과 중 register-task-definition에 다시 넣을 수 있는 필드만 허용 목록으로 복제
+# (revision, status 등 읽기 전용 필드 제외). 목록에 없는 새 필드는 복제되지 않는다는 점에 주의.
 TASK_KEYS = ("family", "taskRoleArn", "executionRoleArn", "networkMode", "containerDefinitions", "volumes",
              "placementConstraints", "requiresCompatibilities", "cpu", "memory", "pidMode", "ipcMode",
              "proxyConfiguration", "inferenceAccelerators", "ephemeralStorage", "runtimePlatform", "enableFaultInjection")
 
 
+# 예상된 중단 사유(검증 실패 등). main()은 이 예외의 메시지만 출력하고 다른 예외는 타입명만 출력.
 class DeliveryError(Exception):
     pass
 
@@ -32,11 +69,13 @@ class AwsError(DeliveryError):
         super().__init__(operation + " CODE=" + code + ". 원문 비공개")
 
 
+# 검증 헬퍼: 조건이 거짓이면 즉시 DeliveryError. 이 파일의 모든 안전 검사는 이 함수를 통한다.
 def require(condition, message):
     if not condition:
         raise DeliveryError(message)
 
 
+# 로컬 명령(docker) 실행. 실패 시 stderr 원문을 숨기고 명령 이름만 노출(로그 유출 방지).
 def command(args, timeout=660):
     result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
     if result.returncode:
@@ -44,6 +83,8 @@ def command(args, timeout=660):
     return result.stdout.strip()
 
 
+# AWS CLI 호출 래퍼. (1) apply가 아니면 MUTATIONS 차단 (2) 요청 본문은 argv가 아니라 0600 임시 파일로
+# 전달 (3) 오류는 AWS 오류 코드만 남기고 원문 비공개. 인증은 워크플로가 설정한 OIDC 단기 자격증명 사용.
 class Aws:
     def __init__(self, apply):
         self.apply = apply
@@ -68,12 +109,16 @@ class Aws:
         return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
+# 릴리스 버전 형식 검사(예 1.2.3, 접미사 허용 예 2.0.0-rc.1). 태그 문자열 조합 전 인젝션/오타 방지.
 def version(value):
     require(bool(re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?", value)),
             "릴리스 버전 형식 불일치")
     return value
 
 
+# 태그 -> digest 고정. ECR 저장소가 불변 태그인지 확인한 뒤 태그가 가리키는 sha256 digest를 조회하고
+# repo@sha256:... 형태 URI를 반환한다. 이후 배포는 태그가 아니라 digest 기준이므로 같은 태그가
+# 나중에 바뀌어도 배포 내용이 달라지지 않는다.
 def image(api, repository, tag):
     metadata = api("ecr", "describe-repositories", "--repository-names", repository)["repositories"][0]
     require(metadata["imageTagMutability"] == "IMMUTABLE", "릴리스 ECR 불변 태그 설정 필요")
@@ -83,12 +128,16 @@ def image(api, repository, tag):
     return REGISTRY + "/" + repository + "@" + details[0]["imageDigest"]
 
 
+# ECS Service 한 개를 조회. 없거나 실패 목록이 있으면 중단.
 def service(api, cluster, name):
     result = api("ecs", "describe-services", "--cluster", cluster, "--services", name)
     require(not result.get("failures") and len(result.get("services", [])) == 1, "ECS Service 미준비: " + name)
     return result["services"][0]
 
 
+# 배포 전/후 "정상 기준" 검사. 통과 조건: ACTIVE, desired>=2, running==desired, pending 0,
+# 배포 1건 COMPLETED, ECS Rolling, minimumHealthy>=100 & maximum>=200(무중단 교체 여지),
+# Circuit Breaker enable+rollback. 이미 비정상이거나 다른 배포가 진행 중이면 새 배포를 시작하지 않는다.
 def baseline(value):
     config = value.get("deploymentConfiguration", {})
     breaker = config.get("deploymentCircuitBreaker", {})
@@ -103,6 +152,8 @@ def baseline(value):
     require(breaker.get("enable") and breaker.get("rollback"), "Circuit Breaker 자동 rollback 필요")
 
 
+# 현재 Task Definition을 복제하고 대상 컨테이너의 이미지만 digest URI로 교체한 새 정의를 만든다.
+# 다른 설정(환경변수, Role 등)은 그대로 유지. 검토된 ECS on EC2 + awsvpc 구성만 허용.
 def render_task(task, container, uri):
     output = {key: copy.deepcopy(task[key]) for key in TASK_KEYS if key in task}
     matches = [item for item in output["containerDefinitions"] if item["name"] == container]
@@ -113,6 +164,13 @@ def render_task(task, container, uri):
     return output
 
 
+# BE 사전 검증과 배포 계획 수립(읽기 전용). 서비스별로 이미지 digest, 현재 revision(previous),
+# 새 정의를 계산한다.
+# - legacy-v1: 단일 backend 서비스(이전 시험용). split-v2: payment-server와 main-backend 2개 서비스.
+# - split-v2 추가 조건: Task가 SPRING_FLYWAY_ENABLED=false 일 것(DB 마이그레이션은 배포 전에
+#   별도로 끝내야 함), Service Connect 활성, Main의 PAYMENT_SERVER_BASE_URL=http://payment-server:8090,
+#   Payment의 Service Connect alias 존재, 두 서비스의 namespace 동일.
+# - 배포 순서는 반환 리스트 순서(payment-server -> main-backend).
 def prepare_backend(api, env, release, layout, compatibility):
     require(compatibility, "DB 스키마·신구 API/Payment 호환성 검토 체크 필요")
     version(release)
@@ -151,6 +209,8 @@ def prepare_backend(api, env, release, layout, compatibility):
     return plans
 
 
+# 서비스가 안정화될 때까지 대기 후, 실제로 expected revision인지 재확인한다.
+# Circuit Breaker가 자동 롤백해도 waiter는 성공할 수 있으므로 "안정화 = 새 버전 배포 성공"이 아님.
 def stable_at(api, plan, expected):
     # Circuit Breaker가 이전 버전으로 복귀해도 waiter는 성공할 수 있어 정확한 revision을 재검사.
     api("ecs", "wait", "services-stable", "--cluster", plan["cluster"], "--services", plan["service"])
@@ -159,6 +219,9 @@ def stable_at(api, plan, expected):
     require(current["taskDefinition"] == expected, "안정화됐으나 요청 Revision 아님(rollback 또는 동시 배포)")
 
 
+# [변경] 서비스별로: 동시 배포 여부 재확인 -> 새 Task Definition revision 등록 -> update-service
+# -> 안정화 확인. attempted에 등록 직후 추가해 실패 시 rollback_backend가 되돌릴 대상이 된다.
+# 앞 서비스에서 실패하면 뒤 서비스는 시작하지 않는다.
 def apply_backend(api, plans, attempted):
     for plan in plans:
         current = service(api, plan["cluster"], plan["service"])
@@ -172,6 +235,9 @@ def apply_backend(api, plans, attempted):
         stable_at(api, plan, plan["new"])
 
 
+# [롤백] 시도한 서비스를 역순으로 이전 revision으로 되돌리고 안정화를 확인한다.
+# 현재 revision이 previous/new 어느 쪽도 아니면(다른 사람이 배포) 자동 롤백을 중단한다.
+# 새 Task Definition revision 자체는 삭제하지 않고 남긴다.
 def rollback_backend(api, attempted):
     for plan in reversed(attempted):
         current = service(api, plan["cluster"], plan["service"])
@@ -182,6 +248,8 @@ def rollback_backend(api, attempted):
         stable_at(api, plan, plan["previous"])
 
 
+# FE 산출물 안전 검사: symlink 금지, index.html 필수, 파일 2000개/100MiB 이하, 허용 문자 경로만,
+# 숨김 파일 금지, 공개 source map(.map) 금지, html은 index.html 하나만(SPA 전제).
 def validate_site(site):
     files = sorted(site.rglob("*"))
     require(all(not item.is_symlink() for item in files), "정적 산출물 symlink 금지")
@@ -197,6 +265,7 @@ def validate_site(site):
     return files
 
 
+# S3 객체 다운로드. 키가 없으면 None 반환(존재 여부 확인에도 사용), 그 외 오류는 전파.
 def get_object(api, bucket, key, destination):
     try:
         return api("s3api", "get-object", "--bucket", bucket, "--key", key, str(destination))
@@ -206,6 +275,11 @@ def get_object(api, bucket, key, destination):
         raise
 
 
+# FE 사전 검증(읽기 전용 + 이미지 pull). 확인 항목: 버킷/배포 ID 환경변수, 공개 접근 차단, 버전 관리,
+# CloudFront가 환경 prefix(frontend/<env>) 전용 OAC 원본을 쓰는지, (production) /api/* 가 BE 원본으로
+# 라우팅되는지, 버킷 정책이 해당 CloudFront만 읽게 허용하는지.
+# 그다음 이미지에서 /usr/share/nginx/html을 복사해 검사하고, 이미 있는 같은 이름 asset이
+# 내용이 다르면 중단한다(구버전 탭이 쓰는 해시 파일을 덮어쓰지 않기 위함).
 def prepare_frontend(api, env, release, directory):
     version(release)
     bucket = os.environ.get("V2_FRONTEND_BUCKET", "")
@@ -266,12 +340,18 @@ def prepare_frontend(api, env, release, directory):
             "index_attempted": False, "existing": existing}
 
 
+# CloudFront 전체(/*) 무효화 후 완료까지 대기. index.html 변경을 즉시 반영하기 위함.
 def invalidate(api, plan):
     result = api("cloudfront", "create-invalidation", "--distribution-id", plan["distribution"], "--paths", "/*")
     api("cloudfront", "wait", "invalidation-completed", "--distribution-id", plan["distribution"],
         "--id", result["Invalidation"]["Id"])
 
 
+# [변경] 업로드 순서: assets 먼저, index.html 마지막(새 index가 올라갈 때 참조 파일이 이미 존재).
+# - assets: 이미 같은 파일이 있으면 건너뜀, 새 파일은 --if-none-match * 로 덮어쓰기 금지,
+#   1년 immutable 캐시.
+# - index.html: 계획 시점 이후 바뀌었으면(동시 배포) 중단, --if-match ETag로 조건부 쓰기, no-cache.
+# - 매 파일 업로드 후 다시 내려받아 sha256 검증. 마지막에 CloudFront 무효화.
 def apply_frontend(api, plan):
     ordered = [path for path in plan["files"] if path.name != "index.html"] + [plan["site"] / "index.html"]
     for path in ordered:
@@ -300,6 +380,9 @@ def apply_frontend(api, plan):
     invalidate(api, plan)
 
 
+# [롤백] index.html만 이전 내용으로 복원(assets는 그대로 둠, 새 index가 없어지면 참조되지 않음).
+# index 업로드를 시도하기 전 실패였으면 할 일 없음. 최초 FE 배포는 이전 index가 없어 수동 복구.
+# 다른 배포가 index를 바꿨으면 자동 복구 중단. 복원 후 내용 검증 + CloudFront 무효화.
 def rollback_frontend(api, plan):
     if not plan["index_attempted"]:
         return
@@ -319,6 +402,8 @@ def rollback_frontend(api, plan):
     invalidate(api, plan)
 
 
+# 전체 오케스트레이션. 순서가 중요: 선택된 모든 대상의 검증을 끝낸 뒤에야 변경을 시작한다.
+# (BE만 통과하고 FE에서 실패해 반쯤 배포되는 상황을 최소화)
 def deliver(args, api, directory):
     require(api("sts", "get-caller-identity").get("Account") == ACCOUNT, "AWS 계정 불일치")
     # 모든선택대상의검사완료전에는등록/배포/업로드를하지않음.
@@ -331,6 +416,7 @@ def deliver(args, api, directory):
                "limitations": ["DB schema rollback not performed", "private viewer/auth/payment QA remains required"]}
     path = directory / "receipt.json"
     path.write_text(json.dumps(receipt, indent=2))
+    # dry-run은 여기서 종료. receipt.json은 이미 기록되어 있다(status=validated).
     if not args.apply:
         print("V2_RELEASE_VALIDATED_NO_AWS_WRITE")
         return
@@ -339,6 +425,8 @@ def deliver(args, api, directory):
         apply_backend(api, backends, attempted)
         if frontend:
             apply_frontend(api, frontend)
+    # 배포 중 어떤 예외든 복구 시도: FE 먼저, 그다음 BE. 한쪽 복구가 실패해도 다른 쪽은 시도한다.
+    # 결과를 receipt에 남기고 예외를 다시 던져 워크플로를 실패시킨다. DB는 복구하지 않는다.
     except Exception:
         receipt["status"] = "failed"
         # 앱과 정적 index만 복구. FE 복구 실패 시에도 BE 복구를 시도하되 DB는 자동 복원하지 않음.
@@ -358,6 +446,8 @@ def deliver(args, api, directory):
     print("V2_RELEASE_DEPLOYED_AND_INFRA_HEALTH_VERIFIED")
 
 
+# 진입 가드. GitHub Actions의 main 브랜치 실행, V2_CD_READY, (BE 포함 시) Task Definition 소유권을
+# 확인한 뒤, 새 전용 상태 디렉터리(0700)에서만 실행한다. 로컬 PC에서 실수로 실행하는 것을 막는다.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--environment", choices=["staging", "production"], required=True)

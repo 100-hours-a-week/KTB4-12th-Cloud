@@ -1,5 +1,33 @@
 #!/usr/bin/env bash
 
+# ==============================================================================
+# Develop 환경 런타임 배포 스크립트 (Develop EC2에서 실행. 기본 경로 /opt/seonjalal-develop)
+# ------------------------------------------------------------------------------
+# 역할
+#   - Develop EC2의 Docker Compose 스택(database, main-backend, payment-server, frontend)을
+#     .env에 적힌 ECR 이미지 기준으로 갱신한다. Secret은 Secrets Manager에서 읽어 임시 파일로만 사용.
+# 호출처(코드로 확인)
+#   - operations/develop/runtime/scripts/reconcile.sh 가 이 스크립트를 호출한다.
+#   - 이 저장소의 GitHub Actions 워크플로에는 이 스크립트를 직접 호출하는 것이 없다.
+# 확인 필요: 일반 Develop 배포의 실제 트리거(수동 SSM/SSH 여부)와 .env의 *_IMAGE 값을 갱신하는 주체
+# 입력 -> 출력
+#   - 입력: 인자 1개(배포 경로, 선택), 배포 경로의 .env(공개 설정+이미지 URI), Secrets Manager의 Runtime Secret.
+#   - 출력(부작용): 앱 컨테이너 재생성(최초 구축 시에만 DB 컨테이너 생성), 마지막에 verify.sh 실행.
+# 흐름
+#   1) .env/필수 파일 확인 -> 2) 필수 키·placeholder·ECR 경로 검증(외부 호출 전에 거절)
+#   -> 3) Secret 조회/검증 후 /run 아래 임시 env 파일 생성 -> 4) ECR 로그인
+#   -> 5) DB 상태 확인(없으면 최초 생성, 비정상이면 중단) -> 6) 이미지 pull
+#   -> 7) main-backend -> payment-server -> frontend 순서로 기동(각각 healthy 대기)
+#   -> 8) verify.sh 스모크 검증
+# 실패 시 동작
+#   - set -e로 즉시 중단. 자동 롤백은 없다. 중간에 실패하면 일부 컨테이너만 새 이미지일 수 있으므로
+#     .env의 이미지 값을 이전 버전으로 되돌려 다시 실행해야 한다(수동 복구).
+#   - 종료 시 trap이 Secret 임시 파일 삭제와 ECR docker logout을 수행(성공/실패/신호 모두).
+#   - DB는 정상일 때 재생성하지 않으며 비정상이면 자동 교체 없이 중단한다.
+# 주의(테스트 연동)
+#   - scripts/prepare-develop-app-recovery.py와 scripts/test_develop_runtime_contract.py가 이 파일의
+#     특정 문자열/구조를 텍스트로 찾는다. 코드를 바꿀 때는 해당 스크립트/테스트도 함께 확인할 것.
+# ==============================================================================
 set -Eeuo pipefail
 
 deploy_path="${1:-/opt/seonjalal-develop}"
@@ -10,8 +38,10 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
+# .env에는 공개 설정만 있어야 하나(Secret은 Secrets Manager) 안전을 위해 소유자 전용 권한으로 고정.
 chmod 600 .env
 
+# 배포에 필요한 파일이 EC2에 배치돼 있는지 확인. 없으면 아무 변경 없이 중단.
 for required_file in compose.yaml nginx/default.conf scripts/verify.sh; do
   if [[ ! -f "${required_file}" ]]; then
     echo "필수 배포 파일이 없음: ${required_file}" >&2
@@ -19,6 +49,8 @@ for required_file in compose.yaml nginx/default.conf scripts/verify.sh; do
   fi
 done
 
+# .env에 반드시 있어야 하는 공개 설정 키 목록. 값이 비어 있으면 아래 검사에서 실패한다.
+# Secret 값은 .env가 아니라 Secrets Manager에서 가져온다.
 required_keys=(
   FRONTEND_IMAGE
   MAIN_BACKEND_IMAGE
@@ -47,6 +79,7 @@ if [[ "${product_search_enabled}" != "false" ]]; then
   echo "PRODUCT_SEARCH_ENABLED는 현재 배포에서 false만 허용" >&2
   exit 1
 fi
+# AI 채팅을 켠 환경에서만 AI 연동 관련 키를 필수로 요구한다.
 if [[ "${ai_chat_enabled}" == "true" ]]; then
   required_keys+=(
     AI_CHAT_BASE_URL
@@ -59,6 +92,7 @@ if [[ "${ai_chat_enabled}" == "true" ]]; then
   )
 fi
 
+# 위 목록을 모두 확인. 이 단계까지는 AWS/Docker를 호출하지 않으므로 설정 오류로 인한 실패는 부작용이 없다.
 for key in "${required_keys[@]}"; do
   if ! grep --quiet --extended-regexp "^${key}=.+" .env; then
     echo "필수 환경변수가 없거나 비어 있음: ${key}" >&2
@@ -66,11 +100,14 @@ for key in "${required_keys[@]}"; do
   fi
 done
 
+# 템플릿(.env.example 등)에서 복사한 placeholder 값이 남아 있으면 배포하지 않는다.
 if grep --quiet --extended-regexp '=(change-me|.*000000000000.*|.*YOUR_TAILNET.*)$' .env; then
   echo "실제 값으로 교체되지 않은 Placeholder 존재" >&2
   exit 1
 fi
 
+# 이미지는 Develop용 ECR 저장소 경로(seonjalal/develop/)만 허용. production 이미지나 외부 레지스트리
+# 이미지가 Develop에 배포되는 실수를 차단한다.
 image_pattern='^[0-9]{12}\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/seonjalal/develop/'
 for key in FRONTEND_IMAGE MAIN_BACKEND_IMAGE PAYMENT_SERVER_IMAGE; do
   image="$(awk -F= -v key="${key}" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' .env)"
@@ -93,6 +130,7 @@ sudo install -d -o "${runtime_user}" -g "${runtime_group}" -m 0700 "${secret_dir
 secret_env_file="$(mktemp "${secret_directory}/runtime-secrets.XXXXXX.env")"
 chmod 600 "${secret_env_file}"
 
+# Secret 임시 파일과 ECR 로그인 토큰을 남기지 않기 위한 정리 함수. 아래 trap으로 정상 종료/실패/신호에 모두 실행.
 cleanup() {
   rm -f "${secret_env_file}"
 
@@ -153,6 +191,7 @@ for key in selected_keys:
     print(f"{key}={payload[key]}")
 ' > "${secret_env_file}"
 
+# 이후 모든 compose 호출은 공개 설정(.env) + 임시 Secret 파일 두 개를 함께 사용한다.
 compose_args=(--env-file .env --env-file "${secret_env_file}")
 
 # EC2 Instance Role의 단기 자격 증명으로만 ECR에 로그인한다.
@@ -180,4 +219,5 @@ for application_service in main-backend payment-server frontend; do
   sudo docker compose "${compose_args[@]}" up --detach --no-deps --wait --wait-timeout 240 "${application_service}"
 done
 
+# 배포 후 검증(컨테이너 Health, 스모크). 임시 Secret 파일 경로를 환경변수로 넘기며 실패하면 이 스크립트도 실패.
 SECRET_ENV_FILE="${secret_env_file}" "${deploy_path}/scripts/verify.sh" "${deploy_path}"
