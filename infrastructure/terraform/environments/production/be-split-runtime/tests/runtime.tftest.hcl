@@ -113,7 +113,7 @@ run "dormant_split_contract" {
   assert {
     condition = (
       anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "PAYMENT_SERVER_BASE_URL" && e.value == "http://payment-server:8090"]) &&
-      anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "AI_CHAT_BASE_URL" && e.value == "http://ai-chat:7860"]) &&
+      anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "AI_CHAT_BASE_URL" && e.value == "http://ai-chat:7860/v1/chat/conversations"]) &&
       alltrue([for task in values(aws_ecs_task_definition.service) :
         anytrue([for e in jsondecode(task.container_definitions)[0].environment : e.name == "SPRING_FLYWAY_ENABLED" && e.value == "false"])
       ]) &&
