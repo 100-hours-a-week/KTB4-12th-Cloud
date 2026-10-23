@@ -11,11 +11,15 @@ locals {
   # - be_split_runtime: /ecs/seonjalal-v2-production-{main-backend,payment-server}
   # - ai_ecs_runtime:   /ecs/seonjalal-v2-production-ai
   # - runtime(휴면 구 Backend, 전환 이전 로그 보존): /ecs/seonjalal-v2-production/backend
+  # - RDS: AI PostgreSQL(ai-database)과 MySQL 에러 로그(foundation). RDS가 /aws/rds/instance/<식별자>/<로그종류>로 생성.
+  #   MySQL 로그 그룹은 foundation Root에서 내보내기를 켠 뒤에 생기며, 그 전에는 허용만 존재하고 대상은 없음.
   production_log_group_names = [
     "/ecs/seonjalal-v2-production-main-backend",
     "/ecs/seonjalal-v2-production-payment-server",
     "/ecs/seonjalal-v2-production-ai",
     "/ecs/seonjalal-v2-production/backend",
+    "/aws/rds/instance/seonjalal-v2-production-ai-postgres/postgresql",
+    "/aws/rds/instance/seonjalal-v2-production/error",
   ]
   production_log_group_arns = [
     for name in local.production_log_group_names :
@@ -31,7 +35,7 @@ locals {
 resource "aws_iam_policy" "production_log_read" {
   count       = var.production_log_read_enabled ? 1 : 0
   name        = "SeonjalalTeamProductionLogRead"
-  description = "MFA read-only access to production ECS application log groups; no server access"
+  description = "MFA read-only access to production ECS application and RDS log groups; no server access"
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [

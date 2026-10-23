@@ -45,6 +45,15 @@ terraform -chdir=infrastructure/terraform/environments/shared/team-settings plan
   -var production_log_read_enabled=true -out=production-log-read.tfplan
 ```
 
+## 스테이징 로그 읽기 전용 접근 (opt-in)
+
+`nonproduction_log_read_enabled=true`일 때만 `SeonjalalTeamStagingLogRead`를 두 팀 그룹에 연결. 운영 정책과 분리.
+
+- 대상: `/ecs/seonjalal-v2-staging/backend`, `/ecs/seonjalal-v2-staging-{main-backend,payment-server,ai}`, 스테이징 AI PostgreSQL 로그. 존재하지 않는 로그 그룹은 허용만 있고 대상이 없음
+- 운영 RDS 로그(AI PostgreSQL, MySQL 에러 로그)는 `production-log-read.tf` 목록에 포함. MySQL 로그 그룹은 foundation Root에서 내보내기를 켠 뒤에 생성
+- 개발(develop)은 CloudWatch 로그 그룹이 없어 대상 아님. SSM 셸의 `docker logs`로 확인
+- 모든 정책 적용 시 기존 `-var team_settings_admin_enabled=true -var team_ssm_access_enabled=true`를 반드시 함께 지정(미지정 시 현재 적용된 권한이 기본값으로 되돌아가는 계획이 생성됨)
+
 ## 로컬 검사
 
 ```bash
