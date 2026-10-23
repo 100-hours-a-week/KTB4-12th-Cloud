@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""승인한 신규4명의 콘솔 로그인만 생성. 기존 비밀번호 변경·Access Key 발급 없음."""
+"""승인한 팀원의 콘솔 로그인만 생성. 기본은 신규4명, --user로 팀원 한 명씩 지정 가능. 기존 비밀번호 변경·Access Key 발급 없음."""
 import argparse
 import json
 import os
@@ -12,6 +12,8 @@ import tempfile
 
 ACCOUNT = "721744297924"
 USERS = ("fs-neo", "fs-ava", "ai-dylan", "ai-emet")
+# --user로 지정 가능한 팀원. fs-theo는 삭제 후 재생성한 계정이라 별도로 지정해서 발급.
+ALLOWED_USERS = ("fs-neo", "fs-theo", "fs-ava", "ai-dylan", "ai-emet")
 
 
 class AwsFailure(Exception):
@@ -54,7 +56,7 @@ def profile(user, call):
         return None
 
 
-def preflight(call):
+def preflight(call, users=USERS):
     require(call("sts", "get-caller-identity").get("Account") == ACCOUNT, "대상 계정 불일치")
     try:
         policy = call("iam", "get-account-password-policy")["PasswordPolicy"]
@@ -64,7 +66,7 @@ def preflight(call):
         policy = {}
     length = max(32, int(policy.get("MinimumPasswordLength", 8)))
     require(length <= 128, "계정 비밀번호 길이 정책 확인 필요")
-    for user in USERS:
+    for user in users:
         identity = call("iam", "get-user", "--user-name", user)["User"]
         require(identity.get("Arn") == f"arn:aws:iam::{ACCOUNT}:user/{user}", "신규 사용자 대상 불일치")
         require(profile(user, call) is None, "기존 콘솔 로그인 발견. 비밀번호 덮어쓰기 없이 중단")
@@ -92,18 +94,18 @@ def save(path, record):
             temporary.unlink()
 
 
-def issue(call, directory):
-    length = preflight(call)
+def issue(call, directory, users=USERS):
+    length = preflight(call, users)
     path = directory / "credentials.json"
     require(not path.exists(), "기존 인계 파일 존재. 자동 덮어쓰기 중단")
     record = {"account": ACCOUNT, "console_url": f"https://{ACCOUNT}.signin.aws.amazon.com/console/",
               "instructions": "담당자에게 본인 항목만 개별 전달. 첫 로그인 비밀번호 변경 후 MFA 등록. 전체 파일 공유 금지.",
               "users": {user: {"temporary_password": password(length), "status": "prepared",
-                               "password_reset_required": True} for user in USERS}}
+                               "password_reset_required": True} for user in users}}
     save(path, record)
     print("PRIVATE_HANDOFF_FILE=" + str(path), flush=True)
     print("DO_NOT_PASTE_OR_SHARE_THE_WHOLE_FILE", flush=True)
-    for user in USERS:
+    for user in users:
         require(profile(user, call) is None, "발급 직전 기존 로그인 발견. 추가 생성 중단")
         record["users"][user]["status"] = "pending"
         save(path, record)
@@ -121,19 +123,22 @@ def issue(call, directory):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--approved-console-logins", action="store_true")
+    parser.add_argument("--user", action="append", choices=ALLOWED_USERS,
+                        help="발급 대상을 지정(여러 번 사용 가능). 생략하면 기본 신규4명")
     args = parser.parse_args()
-    require(args.approved_console_logins, "신규4명 콘솔 로그인 발급 승인 옵션 필요")
+    require(args.approved_console_logins, "콘솔 로그인 발급 승인 옵션 필요")
+    users = tuple(dict.fromkeys(args.user)) if args.user else USERS
     os.umask(0o077)
     directory = Path(tempfile.mkdtemp(prefix="seonjalal-team-logins.", dir="/private/tmp"))
     print("PRIVATE_HANDOFF_DIR=" + str(directory), flush=True)
     try:
-        issue(api, directory)
+        issue(api, directory, users)
     except Exception:
         print("STOP: 부분 발급 여부는 보호 인계 파일로 확인. 자동 재실행/비밀번호 재설정 금지", file=sys.stderr)
         raise
-    print("NEW_TEAM_CONSOLE_LOGINS_VERIFIED=4")
+    print("NEW_TEAM_CONSOLE_LOGINS_VERIFIED=" + str(len(users)))
     print("PASSWORD_RESET_REQUIRED_MFA_BEFORE_SETTINGS_ACCESS")
-    print("THEO_UNCHANGED_NO_ACCESS_KEYS_NO_RUNTIME_CHANGE")
+    print("NO_ACCESS_KEYS_NO_RUNTIME_CHANGE")
 
 
 if __name__ == "__main__":
