@@ -1,6 +1,6 @@
 # 팀별 비운영 설정 접근
 
-개인 IAM 계정4개, 기존fs-theo조회, 팀별그룹2개, 팀/환경별 빈Secret4개와MFA필수설정접근권한 구성.
+개인 IAM 계정5개(fs-theo는 삭제 후 같은 이름으로 재생성), 팀별그룹2개, 팀/환경별 빈Secret4개와MFA필수설정접근권한 구성.
 
 - Fullstack: fs-neo/fs-theo/fs-ava, AI: ai-dylan/ai-emet
 - 담당Secret: `/seonjalal/{develop|staging}/teams/{fullstack|ai}`
