@@ -118,9 +118,9 @@ resource "aws_launch_template" "node" {
 # BE Split Task/Service는 별도 Root에서 관리하며 이 변경만으로 기동되지 않는다.
 resource "aws_autoscaling_group" "node" {
   name                      = "${local.name}-ecs-application"
-  min_size                  = 2
-  desired_capacity          = 2
-  max_size                  = 2
+  min_size                  = var.node_capacity
+  desired_capacity          = var.node_capacity
+  max_size                  = var.node_capacity
   vpc_zone_identifier       = sort(tolist(local.app_subnets))
   health_check_type         = "EC2"
   health_check_grace_period = 300
