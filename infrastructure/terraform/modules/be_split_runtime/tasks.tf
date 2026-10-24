@@ -125,7 +125,7 @@ resource "aws_lb_target_group" "main" {
 # 운영 요청 Host와 일치하지 않는 예약된 .invalid Host로 먼저 연결하고,
 # 실제 운영 Host 전환은 main_cutover의 별도 승인 경계로 유지한다.
 resource "aws_lb_listener_rule" "main_parking" {
-  count        = var.environment == "production" ? 1 : 0
+  count        = 1
   listener_arn = var.config.alb_listener_arn
   priority     = 8
 
@@ -135,7 +135,7 @@ resource "aws_lb_listener_rule" "main_parking" {
   }
 
   condition {
-    host_header { values = ["seonjalal-v2-production-prewarm.invalid"] }
+    host_header { values = ["${local.prefix}-prewarm.invalid"] }
   }
 
   condition {
