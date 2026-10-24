@@ -15,6 +15,12 @@ variable "deployment" {
   description = "기본 null은 리소스 미생성. 실제 입력은 be_split_runtime 모듈에서 검증"
 }
 
+variable "deployment_green" {
+  type        = any
+  default     = null
+  description = "블루-그린 새 슬롯 입력. 기본 null은 새 슬롯을 만들지 않음. 기존 슬롯 값(역할·Secret ARN)을 직접 전달한다."
+}
+
 provider "aws" {
   region              = "ap-northeast-2"
   profile             = var.aws_profile
@@ -36,6 +42,21 @@ module "backend" {
   config         = var.deployment
 }
 
+# 블루-그린 새 슬롯. 기존 슬롯과 State는 같지만 입력은 독립이다(모듈 간 참조로 인한 의존성 순환을 피한다).
+module "backend_green" {
+  count          = var.deployment_green == null ? 0 : 1
+  source         = "../../../modules/be_split_runtime"
+  environment    = "staging"
+  aws_account_id = var.aws_account_id
+  aws_region     = "ap-northeast-2"
+  rds_ca_bundle  = file("${path.module}/../rehearsal/certs/ap-northeast-2-bundle.pem")
+  config         = var.deployment_green
+}
+
 output "be_split_runtime" {
   value = try(module.backend[0].runtime, null)
+}
+
+output "be_split_runtime_green" {
+  value = try(module.backend_green[0].runtime, null)
 }

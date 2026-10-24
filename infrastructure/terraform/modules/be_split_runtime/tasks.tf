@@ -17,7 +17,7 @@ locals {
     # BE가 이 값 뒤에 "/{대화ID}"와 "/{대화ID}/turns/{turnId}/events"를 붙이므로 챗봇 API 경로까지 포함해야 함(끝에 / 금지).
     AI_CHAT_BASE_URL              = "http://ai-chat:7860/v1/chat/conversations"
     AI_PROFILE_BASE_URL           = "http://ai-profiler:8001"
-    PAYMENT_SERVER_BASE_URL       = "http://payment-server:8090"
+    PAYMENT_SERVER_BASE_URL       = "http://payment-server${local.suffix}:8090"
     SCHEDULING_ENABLED            = tostring(var.config.scheduling_enabled)
     AI_PROFILE_SCHEDULING_ENABLED = tostring(var.config.ai_profile_scheduling_enabled)
     # Flyway 마이그레이션은 스키마를 소유한 Main에서만 실행한다. Payment는 마이그레이션 파일이 없어 항상 꺼 둔다.
@@ -36,7 +36,7 @@ locals {
       portMappings = [merge({ name = "main-backend", containerPort = 8080, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.main_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.main_secret_keys)) : {
-        name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
+        name = key, valueFrom = "${local.secret_arn}:${key}::"
       }]
       healthCheck = {
         command = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
@@ -47,7 +47,7 @@ locals {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.service["main_backend"].name
+          awslogs-group         = local.log_group_names["main_backend"]
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "main-backend"
         }
@@ -62,7 +62,7 @@ locals {
       portMappings = [merge({ name = "payment-server", containerPort = 8090, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.payment_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.payment_secret_keys)) : {
-        name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
+        name = key, valueFrom = "${local.secret_arn}:${key}::"
       }]
       healthCheck = {
         command  = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8090/actuator/health >/dev/null || exit 1"]
@@ -72,7 +72,7 @@ locals {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.service["payment_server"].name
+          awslogs-group         = local.log_group_names["payment_server"]
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "payment-server"
         }
@@ -88,8 +88,8 @@ resource "aws_ecs_task_definition" "service" {
   network_mode             = local.bridge ? "bridge" : "awsvpc"
   cpu                      = "512"
   memory                   = each.key == "main_backend" ? "1536" : "1024"
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task[each.key].arn
+  execution_role_arn       = local.execution_role_arn
+  task_role_arn            = local.task_role_arns[each.key]
   container_definitions    = jsonencode([local.containers[each.key]])
   skip_destroy             = true
   runtime_platform {
@@ -127,7 +127,7 @@ resource "aws_lb_target_group" "main" {
 resource "aws_lb_listener_rule" "main_parking" {
   count        = 1
   listener_arn = var.config.alb_listener_arn
-  priority     = 8
+  priority     = var.config.parking_rule_priority
 
   action {
     type             = "forward"
@@ -135,7 +135,7 @@ resource "aws_lb_listener_rule" "main_parking" {
   }
 
   condition {
-    host_header { values = ["${local.prefix}-prewarm.invalid"] }
+    host_header { values = ["${local.prefix}-prewarm${local.suffix}.invalid"] }
   }
 
   condition {
@@ -188,8 +188,10 @@ resource "aws_ecs_service" "service" {
       for_each = each.key == "payment_server" ? [1] : []
       content {
         port_name = "payment-server"
+        # 접미사 슬롯은 별도 이름으로 등록해 기존 슬롯과 서로 호출하지 않는다(awsvpc와 bridge가 섞인 통신을 피한다).
+        discovery_name = local.suffix == "" ? null : "payment-server${local.suffix}"
         client_alias {
-          dns_name = "payment-server"
+          dns_name = "payment-server${local.suffix}"
           port     = 8090
         }
       }
@@ -201,6 +203,7 @@ resource "aws_ecs_service" "service" {
     ignore_changes = [task_definition]
   }
   depends_on = [
+    aws_cloudwatch_log_group.service,
     aws_iam_role_policy_attachment.execution,
     aws_iam_role_policy.secrets,
     aws_iam_role_policy.product_images,
@@ -221,8 +224,22 @@ resource "aws_lb_listener_rule" "main_cutover" {
   listener_arn = var.config.alb_listener_arn
   priority     = var.config.listener_rule_priority
   action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.main.arn
+    type = "forward"
+    # 새 슬롯이 없으면 기존 형태 그대로 둔다(기존 Rule에 변경이 생기지 않는다).
+    target_group_arn = var.config.green_target_group == null ? aws_lb_target_group.main.arn : null
+    dynamic "forward" {
+      for_each = var.config.green_target_group == null ? [] : [var.config.green_target_group]
+      content {
+        target_group {
+          arn    = aws_lb_target_group.main.arn
+          weight = 100 - forward.value.weight
+        }
+        target_group {
+          arn    = forward.value.arn
+          weight = forward.value.weight
+        }
+      }
+    }
   }
   condition {
     host_header { values = [var.config.application_domain_name] }
