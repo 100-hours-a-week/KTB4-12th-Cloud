@@ -214,6 +214,8 @@ resource "aws_ecs_service" "service" {
     aws_vpc_security_group_egress_rule.alb_to_instances,
     aws_vpc_security_group_ingress_rule.instance_self,
     aws_vpc_security_group_ingress_rule.database_from_instances,
+    aws_vpc_security_group_egress_rule.instance_to_database,
+    aws_vpc_security_group_egress_rule.instance_self,
     aws_lb_listener_rule.main_parking,
   ]
 }

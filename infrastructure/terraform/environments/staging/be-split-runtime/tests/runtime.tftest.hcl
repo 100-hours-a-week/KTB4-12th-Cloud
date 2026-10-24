@@ -251,6 +251,18 @@ run "bridge_mode_replaces_task_enis_with_host_level_rules" {
   }
   assert {
     condition = (
+      aws_vpc_security_group_egress_rule.instance_to_database[0].security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_egress_rule.instance_to_database[0].referenced_security_group_id == "sg-staging-mysql" &&
+      aws_vpc_security_group_egress_rule.instance_to_database[0].from_port == 3306 &&
+      aws_vpc_security_group_egress_rule.instance_self[0].security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_egress_rule.instance_self[0].referenced_security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_egress_rule.instance_self[0].from_port == 32768 &&
+      aws_vpc_security_group_egress_rule.instance_self[0].to_port == 65535
+    )
+    error_message = "bridge 호스트는 DB(3306)와 호스트 간 Service Connect 동적 포트 송신 규칙을 가져야 합니다(운영 호스트 SG는 443 송신만 허용)."
+  }
+  assert {
+    condition = (
       aws_vpc_security_group_ingress_rule.instance_from_alb[0].security_group_id == "sg-staging-instance" &&
       aws_vpc_security_group_ingress_rule.instance_from_alb[0].referenced_security_group_id == "sg-staging-alb" &&
       aws_vpc_security_group_ingress_rule.instance_from_alb[0].from_port == 32768 &&
@@ -493,6 +505,8 @@ run "green_bridge_slot_can_leave_host_rules_to_the_existing_slot" {
       length(aws_vpc_security_group_egress_rule.alb_to_instances) == 0 &&
       length(aws_vpc_security_group_ingress_rule.instance_self) == 0 &&
       length(aws_vpc_security_group_ingress_rule.database_from_instances) == 0 &&
+      length(aws_vpc_security_group_egress_rule.instance_to_database) == 0 &&
+      length(aws_vpc_security_group_egress_rule.instance_self) == 0 &&
       length(aws_security_group.task) == 0 &&
       aws_lb_target_group.main.target_type == "instance"
     )
