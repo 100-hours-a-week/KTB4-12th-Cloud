@@ -59,6 +59,7 @@ variable "config" {
     desired_count                 = optional(number, 0)
     scheduling_enabled            = optional(bool, false)
     ai_profile_scheduling_enabled = optional(bool, false)
+    flyway_enabled                = optional(bool, false)
     traffic_cutover               = optional(bool, false)
     traffic_health_verified       = optional(bool, false)
     activation_checks = optional(object({

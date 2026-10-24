@@ -106,6 +106,16 @@ resource "terraform_data" "guard" {
       error_message = "Main/Payment 모두 지정 MySQL RDS/DB와 JDBC VERIFY_IDENTITY 한 개가 필요합니다."
     }
     precondition {
+      # Flyway는 앱 런타임 계정과 분리된 전용 계정으로 실행한다(앱 계정에 DDL 권한을 주지 않기 위함).
+      # 비밀번호는 평문 환경변수가 아니라 Secret JSON 키로만 주입한다.
+      condition = !var.config.flyway_enabled || (
+        contains(keys(var.config.main_environment), "SPRING_FLYWAY_USER") &&
+        contains(var.config.main_secret_keys, "SPRING_FLYWAY_PASSWORD") &&
+        lookup(var.config.main_environment, "SPRING_FLYWAY_USER", "") != lookup(var.config.main_environment, "DB_USERNAME", "")
+      )
+      error_message = "Flyway 자동 실행에는 앱 계정과 다른 SPRING_FLYWAY_USER(환경변수)와 SPRING_FLYWAY_PASSWORD(Secret 키)가 필요합니다."
+    }
+    precondition {
       condition     = var.config.desired_count == 0 || alltrue(values(var.config.activation_checks))
       error_message = "기동 전 Migration·네트워크·용량·Secret·이미지·API 호환성 확인이 필요합니다."
     }

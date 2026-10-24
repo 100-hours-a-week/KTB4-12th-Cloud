@@ -20,6 +20,8 @@ locals {
     PAYMENT_SERVER_BASE_URL       = "http://payment-server:8090"
     SCHEDULING_ENABLED            = tostring(var.config.scheduling_enabled)
     AI_PROFILE_SCHEDULING_ENABLED = tostring(var.config.ai_profile_scheduling_enabled)
+    # Flyway 마이그레이션은 스키마를 소유한 Main에서만 실행한다. Payment는 마이그레이션 파일이 없어 항상 꺼 둔다.
+    SPRING_FLYWAY_ENABLED = tostring(var.config.flyway_enabled)
   })
   payment_environment = merge(var.config.payment_environment, local.base_environment, {
     PAYMENT_SERVER_PORT = "8090"
@@ -37,8 +39,9 @@ locals {
         name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
       }]
       healthCheck = {
-        command  = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
-        interval = 10, timeout = 5, retries = 3, startPeriod = 90
+        command = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+        # Flyway가 켜지면 마이그레이션이 끝나기 전에 Task가 종료되지 않도록 시작 유예를 ECS 허용 최대값(300초)으로 늘린다.
+        interval = 10, timeout = 5, retries = 3, startPeriod = var.config.flyway_enabled ? 300 : 90
       }
       stopTimeout = 60
       logConfiguration = {
@@ -148,7 +151,7 @@ resource "aws_ecs_service" "service" {
   desired_count                      = var.config.desired_count
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
-  health_check_grace_period_seconds  = each.key == "main_backend" ? 180 : null
+  health_check_grace_period_seconds  = each.key == "main_backend" ? (var.config.flyway_enabled ? 600 : 180) : null
   enable_ecs_managed_tags            = true
   propagate_tags                     = "SERVICE"
   deployment_controller { type = "ECS" }

@@ -145,6 +145,70 @@ run "verified_two_az_activation_and_host_cutover" {
   }
 }
 
+run "flyway_runs_only_in_main_with_longer_startup" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      flyway_enabled   = true
+      main_environment = merge(var.config.main_environment, { SPRING_FLYWAY_USER = "gift_migrator" })
+      main_secret_keys = concat(tolist(var.config.main_secret_keys), ["SPRING_FLYWAY_PASSWORD"])
+    })
+  }
+  assert {
+    condition = (
+      anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "SPRING_FLYWAY_ENABLED" && e.value == "true"]) &&
+      anytrue([for e in jsondecode(aws_ecs_task_definition.service["payment_server"].container_definitions)[0].environment : e.name == "SPRING_FLYWAY_ENABLED" && e.value == "false"])
+    )
+    error_message = "Flyway는 Main에서만 켜지고 Payment는 항상 꺼져 있어야 합니다."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].healthCheck.startPeriod == 300 &&
+      jsondecode(aws_ecs_task_definition.service["payment_server"].container_definitions)[0].healthCheck.startPeriod == 90 &&
+      aws_ecs_service.service["main_backend"].health_check_grace_period_seconds == 600 &&
+      aws_ecs_service.service["payment_server"].health_check_grace_period_seconds == null
+    )
+    error_message = "Flyway 사용 시 Main의 시작 유예만 늘어나야 합니다(컨테이너 300초, 서비스 600초)."
+  }
+  assert {
+    condition     = anytrue([for s in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].secrets : s.name == "SPRING_FLYWAY_PASSWORD"]) && !anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "SPRING_FLYWAY_PASSWORD"])
+    error_message = "Flyway 비밀번호는 Secret 주입으로만 전달되어야 합니다."
+  }
+}
+
+run "flyway_default_off_keeps_original_startup" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  assert {
+    condition = (
+      jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].healthCheck.startPeriod == 90 &&
+      aws_ecs_service.service["main_backend"].health_check_grace_period_seconds == 180
+    )
+    error_message = "기본값(Flyway 꺼짐)에서는 기존 시작 유예(90초/180초)가 유지되어야 합니다."
+  }
+}
+
+run "flyway_without_dedicated_account_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables { config = merge(var.config, { flyway_enabled = true }) }
+  expect_failures = [terraform_data.guard]
+}
+
+run "flyway_with_same_user_as_app_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      flyway_enabled   = true
+      main_environment = merge(var.config.main_environment, { SPRING_FLYWAY_USER = "gift_app" })
+      main_secret_keys = concat(tolist(var.config.main_secret_keys), ["SPRING_FLYWAY_PASSWORD"])
+    })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
 run "start_without_checks_is_rejected" {
   command = plan
   module { source = "../../../modules/be_split_runtime" }
