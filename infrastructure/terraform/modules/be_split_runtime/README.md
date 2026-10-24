@@ -30,7 +30,8 @@
 - `bridge`: Task가 호스트 네트워크를 공유해 **Task별 ENI 한도(`t3.large`는 호스트당 2개)가 사라지고**, 롤링 배포의 추가 Task는 CPU·메모리만 있으면 배치된다. 호스트 포트는 동적(`hostPort=0`)이다.
 - `bridge`에서 바뀌는 것
   - Task 보안 그룹과 Task 기준 규칙을 만들지 않고, 호스트(ECS 컨테이너 인스턴스) 보안 그룹 `container_instance_security_group_id`(필수, 같은 VPC) 기준 규칙을 만든다.
-  - ALB ↔ 호스트 동적 포트 범위 `32768-65535`, 호스트 자기 참조 동일 범위(Service Connect), DB는 호스트 보안 그룹 허용
+  - ALB ↔ 호스트 동적 포트 범위 `32768-65535`, 호스트 자기 참조 동일 범위(Service Connect, 인바운드·송신 양쪽), DB는 호스트 보안 그룹 허용(DB 인바운드)과 호스트 송신 3306
+  - 호스트 송신 규칙을 모듈이 만드는 이유: 운영 호스트 보안 그룹은 443 송신만 허용하고 있어 bridge Task의 DB 연결과 호스트 간 Service Connect가 막힌다(스테이징은 전체 송신 허용이라 드러나지 않았음)
   - 대상 그룹 `target_type = instance`, ECS Service에서 `network_configuration` 제거
 - **보안 격리 약화**: awsvpc에서는 DB가 Main·Payment Task 그룹만 허용했지만, bridge에서는 호스트의 모든 Task가 같은 접근 범위를 가진다. 같은 호스트에 다른 서비스(예: AI)를 올릴 때 DB 접근이 함께 열리는 점을 고려할 것
 - 호스트 보안 그룹이 Secrets 엔드포인트 443과 외부 송신에 접근 가능한 규칙은 호스트를 소유한 Root가 이미 가지고 있어야 한다(이 모듈은 만들지 않음, 중복 규칙 오류 방지)

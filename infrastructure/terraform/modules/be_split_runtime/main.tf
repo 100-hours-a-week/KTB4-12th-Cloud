@@ -352,6 +352,27 @@ resource "aws_vpc_security_group_ingress_rule" "instance_self" {
   to_port                      = local.dynamic_port_to
   description                  = "Service Connect between ECS bridge hosts"
 }
+# 호스트 보안 그룹의 송신 규칙. 운영 호스트 SG는 443 송신만 허용하므로 bridge Task가 쓰는 두 경로를 명시한다.
+# 호스트 → DB. Task 보안 그룹이 없으므로 Task의 DB 연결은 호스트 SG에서 나간다.
+resource "aws_vpc_security_group_egress_rule" "instance_to_database" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.database_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 3306
+  to_port                      = 3306
+  description                  = "ECS bridge hosts to MySQL"
+}
+# 호스트 → 호스트. Service Connect로 Main이 다른 호스트의 Payment 프록시 포트로 나간다.
+resource "aws_vpc_security_group_egress_rule" "instance_self" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "Service Connect between ECS bridge hosts (egress)"
+}
 # DB는 Task 보안 그룹 대신 호스트 보안 그룹을 허용한다(호스트의 모든 Task가 같은 접근 범위).
 resource "aws_vpc_security_group_ingress_rule" "database_from_instances" {
   count                        = local.bridge_rules ? 1 : 0
