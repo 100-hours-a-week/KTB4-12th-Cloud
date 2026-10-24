@@ -1,5 +1,5 @@
 name: V2 Release Delivery
-run-name: V2 ${{ inputs.target_environment }} / BE ${{ inputs.backend_version }}
+run-name: V2 ${{ inputs.target_environment }} / BE ${{ inputs.backend_version }} / ${{ inputs.backend_slot }}
 
 on:
   workflow_dispatch:
@@ -18,6 +18,11 @@ on:
         type: choice
         options: [split-v2, legacy-v1]
         default: split-v2
+      backend_slot:
+        description: 블루-그린 배포 슬롯 — auto는 서비스 중인 슬롯이 하나일 때만 선택, 전환 중에는 직접 지정
+        type: choice
+        options: [auto, blue, green]
+        default: auto
       compatibility_reviewed:
         description: 신구 API·결제 통신 및 DB 스키마 호환성 검토 완료
         type: boolean
@@ -53,6 +58,7 @@ jobs:
       TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
       BACKEND_VERSION: ${{ inputs.backend_version }}
       BACKEND_LAYOUT: ${{ inputs.backend_layout }}
+      BACKEND_SLOT: ${{ inputs.backend_slot }}
       COMPATIBILITY_REVIEWED: ${{ inputs.compatibility_reviewed }}
       DRY_RUN: ${{ inputs.dry_run }}
       V2_CD_READY: ${{ vars.V2_CD_READY }}
@@ -101,6 +107,7 @@ jobs:
             --component backend \
             --backend-version "$BACKEND_VERSION" \
             --backend-layout "$BACKEND_LAYOUT" \
+            --backend-slot "$BACKEND_SLOT" \
             --compatibility-reviewed "$COMPATIBILITY_REVIEWED" \
             --state-dir "$RUNNER_TEMP/v2-delivery" \
             "${APPLY_ARGS[@]}"
