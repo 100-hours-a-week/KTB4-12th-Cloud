@@ -108,7 +108,11 @@ variable "config" {
     condition = (
       length(distinct(var.config.subnet_ids)) == 2 &&
       (var.config.desired_count == 0 || (var.config.desired_count >= 2 && floor(var.config.desired_count) == var.config.desired_count)) &&
-      (!var.config.traffic_cutover || (var.config.desired_count >= 2 && var.config.traffic_health_verified)) &&
+      # 전환 Rule은 HA Task 2개 이상이 있어야 한다. 단, 새 슬롯이 가중치 100을 받아 이 슬롯이 퇴역(0개)하는 경우만 예외.
+      (!var.config.traffic_cutover || (var.config.traffic_health_verified && (
+        var.config.desired_count >= 2 ||
+        (var.config.green_target_group != null && try(var.config.green_target_group.weight, 0) == 100)
+      ))) &&
       var.config.listener_rule_priority >= 1 && var.config.listener_rule_priority <= 50000 &&
       var.config.parking_rule_priority >= 1 && var.config.parking_rule_priority <= 50000 &&
       can(regex("^[0-9a-f]{40}$", var.config.source_sha)) &&
