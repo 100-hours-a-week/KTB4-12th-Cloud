@@ -658,3 +658,71 @@ run "green_weight_requires_cutover" {
   }
   expect_failures = [terraform_data.guard]
 }
+
+# 퇴역 슬롯: 새 슬롯이 가중치 100을 받을 때만 기존 슬롯이 Task 0개로 전환 Rule을 소유할 수 있다.
+run "retired_slot_may_have_zero_tasks_at_full_green_weight" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 0
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+      green_target_group = {
+        arn    = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"
+        weight = 100
+      }
+    })
+  }
+  override_resource {
+    target          = aws_lb_target_group.main
+    override_during = plan
+    values          = { arn = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/blue/0123456789abcdef" }
+  }
+  assert {
+    condition = (
+      alltrue([for service in values(aws_ecs_service.service) : service.desired_count == 0]) &&
+      one([for tg in aws_lb_listener_rule.main_cutover[0].action[0].forward[0].target_group : tg.weight if tg.arn == aws_lb_target_group.main.arn]) == 0 &&
+      one([for tg in aws_lb_listener_rule.main_cutover[0].action[0].forward[0].target_group : tg.weight if tg.arn == "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"]) == 100
+    )
+    error_message = "퇴역 슬롯은 Task 0개로 두고 전환 Rule은 새 슬롯 100%를 유지해야 합니다."
+  }
+}
+
+run "zero_tasks_with_partial_green_weight_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 0
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+      green_target_group = {
+        arn    = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"
+        weight = 50
+      }
+    })
+  }
+  expect_failures = [var.config]
+}
+
+run "zero_tasks_with_cutover_and_no_green_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 0
+      traffic_cutover         = true
+      traffic_health_verified = true
+    })
+  }
+  expect_failures = [var.config]
+}

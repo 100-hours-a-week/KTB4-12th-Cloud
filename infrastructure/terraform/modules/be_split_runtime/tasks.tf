@@ -249,7 +249,8 @@ resource "aws_lb_listener_rule" "main_cutover" {
   lifecycle {
     precondition {
       condition = (
-        var.config.desired_count >= 2 &&
+        # 퇴역 슬롯(새 슬롯이 가중치 100)은 Task 0개로 Rule만 소유할 수 있다.
+        (var.config.desired_count >= 2 || (var.config.green_target_group != null && try(var.config.green_target_group.weight, 0) == 100)) &&
         var.config.traffic_health_verified &&
         alltrue(values(var.config.activation_checks)) &&
         (var.environment != "production" || var.config.listener_rule_priority == 9)
