@@ -61,21 +61,13 @@ resource "aws_acm_certificate" "staging_public" {
   }
 }
 
-resource "aws_route53_record" "staging_public_certificate_validation" {
-  count           = var.staging_public_enabled ? 1 : 0
-  zone_id         = data.aws_route53_zone.staging_public[0].zone_id
-  name            = tolist(aws_acm_certificate.staging_public[0].domain_validation_options)[0].resource_record_name
-  type            = "CNAME"
-  records         = [tolist(aws_acm_certificate.staging_public[0].domain_validation_options)[0].resource_record_value]
-  ttl             = 60
-  allow_overwrite = false
-}
-
+# 인증서 검증 레코드는 만들지 않는다. ACM DNS 검증 레코드는 계정·도메인 단위로 같아서, 같은 도메인의 서울 리전 인증서
+# (staging/rehearsal Root 소유)가 이미 같은 이름·값의 레코드를 가지고 있고, 그 레코드가 us-east-1 인증서도 검증한다.
+# 같은 레코드를 두 Root가 소유하면 한쪽을 지울 때 다른 쪽 인증서가 깨지므로 여기서는 발급 완료만 기다린다.
 resource "aws_acm_certificate_validation" "staging_public" {
-  provider                = aws.us_east_1
-  count                   = var.staging_public_enabled ? 1 : 0
-  certificate_arn         = aws_acm_certificate.staging_public[0].arn
-  validation_record_fqdns = [aws_route53_record.staging_public_certificate_validation[0].fqdn]
+  provider        = aws.us_east_1
+  count           = var.staging_public_enabled ? 1 : 0
+  certificate_arn = aws_acm_certificate.staging_public[0].arn
   timeouts {
     create = "40m"
   }
