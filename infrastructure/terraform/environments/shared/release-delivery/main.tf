@@ -29,6 +29,8 @@ locals {
     frontend = { repo = "KTB4-12th-FE", repo_id = "1344623849" }
   }
   repository_arns = { backend = data.aws_ecr_repository.backend.arn, frontend = aws_ecr_repository.frontend.arn }
+  # BE 배포 Role은 BE 이미지 저장소만 조회한다(FE는 별도 FE 배포 Role). FE 저장소 리소스를 참조하지 않아 의존성도 끊는다.
+  backend_repository_arn = data.aws_ecr_repository.backend.arn
   # 배포 대상 서비스 이름. 블루-그린 두 번째 슬롯(-b)을 포함한다. CD는 서비스 중인 슬롯만 선택하므로 둘 다 갱신 가능해야 한다.
   deploy_service_names = ["backend", "main-backend", "payment-server", "main-backend-b", "payment-server-b"]
 }
@@ -91,7 +93,7 @@ resource "aws_iam_role_policy" "deployer" {
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
     { Effect = "Allow", Action = ["ecr:DescribeRepositories", "ecr:DescribeImages", "ecr:BatchGetImage",
-    "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = values(local.repository_arns) },
+    "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = [local.backend_repository_arn] },
     { Effect = "Allow", Action = ["ecs:DescribeServices", "ecs:UpdateService"], Resource = [
       for name in local.deploy_service_names :
       "arn:aws:ecs:${local.region}:${local.account}:service/seonjalal-v2-${each.key}-cluster/seonjalal-v2-${each.key}-${name}"
