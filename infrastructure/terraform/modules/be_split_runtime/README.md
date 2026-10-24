@@ -36,3 +36,32 @@
 - 호스트 보안 그룹이 Secrets 엔드포인트 443과 외부 송신에 접근 가능한 규칙은 호스트를 소유한 Root가 이미 가지고 있어야 한다(이 모듈은 만들지 않음, 중복 규칙 오류 방지)
 - **전환 주의**: awsvpc → bridge는 `target_type`과 `network_configuration` 변경이라 대상 그룹·Service가 교체될 수 있다. Service가 `task_definition` 변경을 무시(CD 소유)하므로 기존 Service를 그대로 두고는 새 Task Definition이 반영되지 않는다. Task가 0개인 환경에서 먼저 시험하고, 운영은 별도의 무중단 전환 계획이 필요하다.
 - Service Connect는 bridge를 지원하나 `hostname` 컨테이너 설정과 TLS는 지원하지 않는다(AWS 문서). 현재 구성은 둘 다 사용하지 않는다.
+
+## 서비스 교체 시 주의
+
+- awsvpc ↔ bridge처럼 `target_type`·`network_configuration`이 바뀌면 Service는 `-replace`로 교체해야 한다. 이때 이전 Service가 `DRAINING`인 동안 같은 이름으로 만들면 "Create service is not idempotent" 오류가 난다. 이전 Service가 `INACTIVE`가 된 뒤 다시 Plan·Apply한다.
+- 교체 Plan에서 Service가 in-place로만 보이면 새 Task Definition이 반영되지 않는다. 반드시 교체(`-replace`)로 계획되었는지 확인한다.
+- 이 방식은 교체 동안 서비스가 중단된다. 무중단이 필요하면 아래 블루-그린을 쓴다.
+
+## 블루-그린 슬롯 (무중단 전환)
+
+같은 Root에서 모듈을 두 번 호출해 새 슬롯을 기존 슬롯 옆에 띄우고, ALB 가중치로 트래픽을 옮긴다. 기본값에서는 기존 단일 슬롯과 동일하게 동작한다.
+
+| 설정(`config`) | 용도 |
+|---|---|
+| `name_suffix` (예 `"-b"`) | 서비스·Task 패밀리·Service Connect 이름에 접미사. `shared_resources`와 함께만 사용 |
+| `shared_resources` | 기존 슬롯의 실행 Role·Task Role·Secret ARN 재사용(새로 만들지 않음) |
+| `parking_rule_priority` | 예약 Rule 우선순위. 기존 8, 새 슬롯은 겹치지 않는 값(예 7) |
+| `manage_host_rules` | 호스트 보안 그룹 규칙 소유 여부. 두 슬롯이 모두 bridge면 한쪽만 true |
+| `green_target_group` | **기존 슬롯**의 전환 Rule에 새 슬롯 대상 그룹과 가중치(0~100) 지정 |
+
+- 새 슬롯의 Main은 `payment-server-b`(접미사 이름)로 같은 슬롯의 Payment만 호출한다. awsvpc와 bridge 사이의 Service Connect 혼합 통신에 의존하지 않는다.
+- 전환 Rule(우선순위 9)은 기존 슬롯 하나만 소유한다. 새 슬롯은 `traffic_cutover`나 `green_target_group`을 쓸 수 없다(가드가 거부).
+- Root에서는 두 슬롯을 독립 입력(`deployment`, `deployment_green`)으로 받는다. 모듈 간 참조는 의존성 순환을 만들기 때문에 기존 슬롯 ARN과 새 대상 그룹 ARN은 tfvars로 전달한다.
+- 절차(각 단계가 별도 Plan·승인)
+  1. 새 슬롯 생성(`desired_count = 0`) → 대상 그룹을 리스너에 연결(예약 Rule)
+  2. 새 슬롯 기동(Task·헬스 확인), 호스트 용량 확인
+  3. 기존 슬롯 전환 Rule에 `green_target_group` 가중치 0 지정 → 10 → 50 → 100
+  4. 문제 시 가중치를 되돌린다(롤백)
+  5. 안정화 후 기존 슬롯 입력을 제거해 정리
+- 한계: 새 슬롯을 기존 슬롯의 서비스 이름으로 되돌리는 이름 정리는 하지 않는다. CD가 어느 슬롯이 현재 서비스 중인지 알아야 한다.

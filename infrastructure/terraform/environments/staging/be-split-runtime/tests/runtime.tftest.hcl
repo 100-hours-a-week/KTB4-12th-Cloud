@@ -18,7 +18,7 @@ override_data {
   values = { vpc_id = "vpc-staging", availability_zone = "ap-northeast-2b", map_public_ip_on_launch = false }
 }
 override_resource {
-  target          = aws_secretsmanager_secret.runtime
+  target          = aws_secretsmanager_secret.runtime[0]
   override_during = plan
   values          = { arn = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:seonjalal/staging/backend/split-runtime-aaaaaa" }
 }
@@ -116,8 +116,8 @@ run "dormant_split_contract" {
       alltrue([for task in values(aws_ecs_task_definition.service) :
         anytrue([for e in jsondecode(task.container_definitions)[0].environment : e.name == "SPRING_FLYWAY_ENABLED" && e.value == "false"])
       ]) &&
-      jsondecode(aws_iam_role_policy.product_images.policy).Statement[0].Action == ["s3:GetObject"] &&
-      jsondecode(aws_iam_role_policy.product_images.policy).Statement[0].Resource == "arn:aws:s3:::gift-staging-images-example/products/staging/*"
+      jsondecode(aws_iam_role_policy.product_images[0].policy).Statement[0].Action == ["s3:GetObject"] &&
+      jsondecode(aws_iam_role_policy.product_images[0].policy).Statement[0].Resource == "arn:aws:s3:::gift-staging-images-example/products/staging/*"
     )
     error_message = "BE Main 내부 Service Connect 주소 필요."
   }
@@ -396,4 +396,251 @@ run "staging_cutover_without_health_is_rejected" {
   module { source = "../../../modules/be_split_runtime" }
   variables { config = merge(var.config, { traffic_cutover = true }) }
   expect_failures = [var.config]
+}
+
+# ---- 블루-그린 슬롯 ----
+# 접미사 슬롯: 기존 슬롯의 IAM Role·Secret·로그 그룹을 재사용하고 이름·Service Connect·예약 Rule만 분리한다.
+run "green_slot_reuses_shared_resources_and_isolates_names" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      network_mode                         = "bridge"
+      container_instance_security_group_id = "sg-staging-instance"
+      name_suffix                          = "-b"
+      parking_rule_priority                = 7
+      shared_resources = {
+        execution_role_arn = "arn:aws:iam::000000000000:role/seonjalal-v2-staging-split-execution"
+        task_role_arns = {
+          main_backend   = "arn:aws:iam::000000000000:role/seonjalal-v2-staging-main-backend-task"
+          payment_server = "arn:aws:iam::000000000000:role/seonjalal-v2-staging-payment-server-task"
+        }
+        secret_arn = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:seonjalal/staging/backend/split-runtime-aaaaaa"
+      }
+    })
+  }
+  assert {
+    condition = (
+      length(aws_cloudwatch_log_group.service) == 0 &&
+      length(aws_iam_role.task) == 0 &&
+      length(aws_iam_role.execution) == 0 &&
+      length(aws_iam_role_policy.secrets) == 0 &&
+      length(aws_iam_role_policy.product_images) == 0 &&
+      length(aws_secretsmanager_secret.runtime) == 0
+    )
+    error_message = "접미사 슬롯은 공유 자원(로그 그룹·IAM·Secret)을 새로 만들지 않아야 합니다."
+  }
+  assert {
+    condition = (
+      aws_ecs_service.service["main_backend"].name == "seonjalal-v2-staging-main-backend-b" &&
+      aws_ecs_service.service["payment_server"].name == "seonjalal-v2-staging-payment-server-b" &&
+      aws_ecs_task_definition.service["main_backend"].family == "seonjalal-v2-staging-main-backend-b" &&
+      aws_ecs_task_definition.service["payment_server"].family == "seonjalal-v2-staging-payment-server-b"
+    )
+    error_message = "서비스·Task 패밀리 이름에 접미사가 붙어야 합니다."
+  }
+  assert {
+    condition = (
+      aws_ecs_task_definition.service["main_backend"].execution_role_arn == "arn:aws:iam::000000000000:role/seonjalal-v2-staging-split-execution" &&
+      aws_ecs_task_definition.service["main_backend"].task_role_arn == "arn:aws:iam::000000000000:role/seonjalal-v2-staging-main-backend-task" &&
+      aws_ecs_task_definition.service["payment_server"].task_role_arn == "arn:aws:iam::000000000000:role/seonjalal-v2-staging-payment-server-task" &&
+      startswith(jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].secrets[0].valueFrom, "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:seonjalal/staging/backend/split-runtime-aaaaaa:") &&
+      jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/ecs/seonjalal-v2-staging-main-backend"
+    )
+    error_message = "공유 IAM Role·Secret·기존 로그 그룹을 그대로 사용해야 합니다."
+  }
+  assert {
+    condition = (
+      anytrue([for env in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment :
+      env.name == "PAYMENT_SERVER_BASE_URL" && env.value == "http://payment-server-b:8090"]) &&
+      aws_ecs_service.service["payment_server"].service_connect_configuration[0].service[0].discovery_name == "payment-server-b" &&
+      aws_ecs_service.service["payment_server"].service_connect_configuration[0].service[0].client_alias[0].dns_name == "payment-server-b"
+    )
+    error_message = "새 슬롯의 Main은 같은 슬롯의 Payment만 호출하도록 Service Connect 이름이 분리되어야 합니다."
+  }
+  assert {
+    condition = (
+      aws_lb_listener_rule.main_parking[0].priority == 7 &&
+      anytrue([for condition in aws_lb_listener_rule.main_parking[0].condition :
+      anytrue([for host in condition.host_header : toset(host.values) == toset(["seonjalal-v2-staging-prewarm-b.invalid"])])]) &&
+      length(aws_lb_listener_rule.main_cutover) == 0
+    )
+    error_message = "예약 Rule은 슬롯별 우선순위·Host를 쓰고 전환 Rule은 만들지 않아야 합니다."
+  }
+}
+
+# 두 슬롯이 모두 bridge일 때 호스트 보안 그룹 규칙은 한 슬롯만 소유한다(중복 규칙 오류 방지).
+run "green_bridge_slot_can_leave_host_rules_to_the_existing_slot" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      network_mode                         = "bridge"
+      container_instance_security_group_id = "sg-staging-instance"
+      manage_host_rules                    = false
+      name_suffix                          = "-b"
+      parking_rule_priority                = 7
+      shared_resources = {
+        execution_role_arn = "arn:aws:iam::000000000000:role/x"
+        task_role_arns     = { main_backend = "arn:aws:iam::000000000000:role/a", payment_server = "arn:aws:iam::000000000000:role/b" }
+        secret_arn         = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:x"
+      }
+    })
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_ingress_rule.instance_from_alb) == 0 &&
+      length(aws_vpc_security_group_egress_rule.alb_to_instances) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.instance_self) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.database_from_instances) == 0 &&
+      length(aws_security_group.task) == 0 &&
+      aws_lb_target_group.main.target_type == "instance"
+    )
+    error_message = "규칙을 소유하지 않는 bridge 슬롯은 호스트 보안 그룹 규칙을 만들지 않아야 합니다."
+  }
+}
+
+run "green_slot_without_shared_resources_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, { name_suffix = "-b" })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
+run "shared_resources_without_suffix_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      shared_resources = {
+        execution_role_arn = "arn:aws:iam::000000000000:role/x"
+        task_role_arns     = { main_backend = "arn:aws:iam::000000000000:role/a", payment_server = "arn:aws:iam::000000000000:role/b" }
+        secret_arn         = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:x"
+      }
+    })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
+run "green_slot_cannot_own_the_cutover_rule" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      name_suffix             = "-b"
+      desired_count           = 2
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+      shared_resources = {
+        execution_role_arn = "arn:aws:iam::000000000000:role/x"
+        task_role_arns     = { main_backend = "arn:aws:iam::000000000000:role/a", payment_server = "arn:aws:iam::000000000000:role/b" }
+        secret_arn         = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:x"
+      }
+    })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
+# 기존 슬롯의 전환 Rule: 새 슬롯이 없으면 단일 Target, 있으면 가중치 전달.
+run "cutover_without_green_keeps_single_target_form" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 2
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+    })
+  }
+  override_resource {
+    target          = aws_lb_target_group.main
+    override_during = plan
+    values          = { arn = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/blue/0123456789abcdef" }
+  }
+  assert {
+    condition = (
+      aws_lb_listener_rule.main_cutover[0].action[0].target_group_arn == aws_lb_target_group.main.arn &&
+      length(aws_lb_listener_rule.main_cutover[0].action[0].forward) == 0
+    )
+    error_message = "새 슬롯이 없으면 기존 Rule 형태(단일 Target Group)를 유지해야 합니다."
+  }
+}
+
+run "cutover_with_green_splits_traffic_by_weight" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 2
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+      green_target_group = {
+        arn    = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"
+        weight = 10
+      }
+    })
+  }
+  override_resource {
+    target          = aws_lb_target_group.main
+    override_during = plan
+    values          = { arn = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/blue/0123456789abcdef" }
+  }
+  assert {
+    condition = (
+      length(aws_lb_listener_rule.main_cutover[0].action[0].forward) == 1 &&
+      length(aws_lb_listener_rule.main_cutover[0].action[0].forward[0].target_group) == 2 &&
+      one([for tg in aws_lb_listener_rule.main_cutover[0].action[0].forward[0].target_group : tg.weight if tg.arn == aws_lb_target_group.main.arn]) == 90 &&
+      one([for tg in aws_lb_listener_rule.main_cutover[0].action[0].forward[0].target_group : tg.weight if tg.arn == "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"]) == 10
+    )
+    error_message = "기존 90, 새 슬롯 10 가중치로 나누어야 합니다."
+  }
+}
+
+run "green_weight_out_of_range_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      desired_count           = 2
+      traffic_cutover         = true
+      traffic_health_verified = true
+      activation_checks = {
+        database_migrated = true, network_verified = true, capacity_verified = true,
+        secrets_ready     = true, images_verified = true, api_compatible = true
+      }
+      green_target_group = {
+        arn    = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"
+        weight = 101
+      }
+    })
+  }
+  expect_failures = [terraform_data.guard]
+}
+
+run "green_weight_requires_cutover" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      green_target_group = {
+        arn    = "arn:aws:elasticloadbalancing:ap-northeast-2:000000000000:targetgroup/green/0123456789abcdef"
+        weight = 10
+      }
+    })
+  }
+  expect_failures = [terraform_data.guard]
 }

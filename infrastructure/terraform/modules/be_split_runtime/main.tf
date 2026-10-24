@@ -1,7 +1,7 @@
 locals {
   bridge = var.config.network_mode == "bridge"
   # 호스트 보안 그룹이 지정된 bridge에서만 호스트 기준 규칙을 만든다. 미지정이면 가드가 실패시킨다.
-  bridge_rules  = local.bridge && var.config.container_instance_security_group_id != null
+  bridge_rules  = local.bridge && var.config.container_instance_security_group_id != null && var.config.manage_host_rules
   task_sg_names = local.bridge ? {} : local.names
   # ECS Linux 기본 동적 호스트 포트 범위(bridge에서 ALB·Service Connect 트래픽에 필요).
   dynamic_port_from = 32768
@@ -10,11 +10,22 @@ locals {
 
 locals {
   prefix = "seonjalal-v2-${var.environment}"
-  names = {
+  suffix = var.config.name_suffix
+  shared = var.config.shared_resources
+  # 접미사 슬롯은 기존 슬롯의 IAM Role·Secret·로그 그룹을 재사용하고 새로 만들지 않는다.
+  owns_shared = local.shared == null
+  # 로그 그룹·IAM Role 이름의 기준. 슬롯과 무관하게 접미사가 없다.
+  shared_names = {
     main_backend   = "${local.prefix}-main-backend"
     payment_server = "${local.prefix}-payment-server"
   }
-  ports = { main_backend = 8080, payment_server = 8090 }
+  # 서비스·Task 패밀리 이름. 접미사 슬롯은 기존 슬롯과 이름이 겹치지 않는다.
+  names              = { for key, name in local.shared_names : key => "${name}${local.suffix}" }
+  secret_arn         = local.owns_shared ? aws_secretsmanager_secret.runtime[0].arn : local.shared.secret_arn
+  execution_role_arn = local.owns_shared ? aws_iam_role.execution[0].arn : local.shared.execution_role_arn
+  task_role_arns     = local.owns_shared ? { for key, role in aws_iam_role.task : key => role.arn } : local.shared.task_role_arns
+  log_group_names    = { for key, name in local.shared_names : key => "/ecs/${name}" }
+  ports              = { main_backend = 8080, payment_server = 8090 }
   trust = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -146,47 +157,93 @@ resource "terraform_data" "guard" {
       condition     = var.config.desired_count == 0 || alltrue(values(var.config.activation_checks))
       error_message = "기동 전 Migration·네트워크·용량·Secret·이미지·API 호환성 확인이 필요합니다."
     }
+    precondition {
+      # 접미사 슬롯은 공유 자원 재사용이 필수이고, 자체 전환 Rule과 가중치 Rule을 만들 수 없다(전환 Rule은 기존 슬롯 하나만 소유).
+      condition = (
+        can(regex("^(-[a-z0-9]{1,8})?$", local.suffix)) &&
+        (local.suffix != "") == (local.shared != null) &&
+        (local.suffix == "" || (!var.config.traffic_cutover && var.config.green_target_group == null))
+      )
+      error_message = "name_suffix는 '-영숫자' 형식이며 shared_resources와 함께만 쓰고, 접미사 슬롯은 traffic_cutover·green_target_group을 사용할 수 없습니다."
+    }
+    precondition {
+      condition = var.config.green_target_group == null || (
+        var.config.traffic_cutover &&
+        var.config.green_target_group.weight >= 0 &&
+        var.config.green_target_group.weight <= 100 &&
+        floor(var.config.green_target_group.weight) == var.config.green_target_group.weight
+      )
+      error_message = "green_target_group은 traffic_cutover가 켜진 기존 슬롯에서만, 0~100 정수 가중치로 사용할 수 있습니다."
+    }
   }
 }
 
+# 단일 리소스에 count를 도입하면서 기존 State 주소를 새 주소로 옮긴다. 실제 AWS 리소스는 변경되지 않는다.
+moved {
+  from = aws_secretsmanager_secret.runtime
+  to   = aws_secretsmanager_secret.runtime[0]
+}
+moved {
+  from = aws_iam_role.execution
+  to   = aws_iam_role.execution[0]
+}
+moved {
+  from = aws_iam_role_policy_attachment.execution
+  to   = aws_iam_role_policy_attachment.execution[0]
+}
+moved {
+  from = aws_iam_role_policy.secrets
+  to   = aws_iam_role_policy.secrets[0]
+}
+moved {
+  from = aws_iam_role_policy.product_images
+  to   = aws_iam_role_policy.product_images[0]
+}
+
+# 아래 공유 자원은 기존 슬롯만 소유한다. 접미사 슬롯은 shared_resources로 ARN을 받아 재사용한다.
 resource "aws_cloudwatch_log_group" "service" {
-  for_each          = local.names
+  for_each          = local.owns_shared ? local.shared_names : {}
   name              = "/ecs/${each.value}"
   retention_in_days = local.log_retention
 }
 
 # JSON 값은 별도 안전한 bootstrap으로 저장. Terraform State에는 Secret 값이 없다.
 resource "aws_secretsmanager_secret" "runtime" {
+  count                   = local.owns_shared ? 1 : 0
   name                    = "seonjalal/${var.environment}/backend/split-runtime"
   recovery_window_in_days = 30
   lifecycle { prevent_destroy = true }
 }
 
 resource "aws_iam_role" "execution" {
+  count              = local.owns_shared ? 1 : 0
   name               = "${local.prefix}-split-execution"
   assume_role_policy = local.trust
 }
 resource "aws_iam_role_policy_attachment" "execution" {
-  role       = aws_iam_role.execution.name
+  count      = local.owns_shared ? 1 : 0
+  role       = aws_iam_role.execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 resource "aws_iam_role_policy" "secrets" {
-  name = "InjectOnlySplitBackendSecret"
-  role = aws_iam_role.execution.id
+  count = local.owns_shared ? 1 : 0
+  name  = "InjectOnlySplitBackendSecret"
+  role  = aws_iam_role.execution[0].id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.runtime.arn }]
+    Statement = [{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.runtime[0].arn }]
   })
 }
 
 resource "aws_iam_role" "task" {
-  for_each           = local.names
+  for_each           = local.owns_shared ? local.shared_names : {}
   name               = "${each.value}-task"
   assume_role_policy = local.trust
 }
 resource "aws_iam_role_policy" "product_images" {
-  name = "ReadOnlyProductImages"
-  role = aws_iam_role.task["main_backend"].id
+  count = local.owns_shared ? 1 : 0
+  name  = "ReadOnlyProductImages"
+  role  = aws_iam_role.task["main_backend"].id
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = ["s3:GetObject"], Resource = "arn:aws:s3:::${var.config.product_image_bucket}/${var.config.product_image_prefix}*" }]
