@@ -155,3 +155,27 @@ run "cloudfront_access_references_service_security_group_not_prefix_list" {
     error_message = "443은 CloudFront VPC Origin 서비스 SG 참조 1건만 허용한다(접두사 목록은 SG 규칙 한도 초과)."
   }
 }
+
+run "user_name_alias_can_be_released_for_cloudfront" {
+  command = plan
+  variables {
+    enable_staging_certificate      = true
+    enable_staging_origin_name      = true
+    staging_public_zone_id          = "ZEXAMPLE"
+    staging_user_name_points_to_alb = false
+  }
+  override_data {
+    target = data.aws_route53_zone.staging_public[0]
+    values = { name = "seonjalal.com.", private_zone = false }
+  }
+
+  assert {
+    condition = (
+      length(aws_route53_record.staging_backend) == 0 &&
+      length(aws_route53_record.staging_origin) == 1 &&
+      aws_route53_record.staging_origin[0].name == "v2-staging-origin.seonjalal.com" &&
+      length(aws_acm_certificate.staging) == 1
+    )
+    error_message = "사용자 이름 ALB 별칭만 제거하고 원본 이름 레코드와 기존 인증서는 유지해야 한다."
+  }
+}

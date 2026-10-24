@@ -15,6 +15,12 @@ variable "enable_cloudfront_origin_access" {
   description = "ALB 443에 CloudFront VPC Origin 서비스 보안 그룹 접근 허용. 접두사 목록 규칙은 SG 규칙 한도(60)를 넘겨 사용하지 않음"
 }
 
+variable "staging_user_name_points_to_alb" {
+  type        = bool
+  default     = true
+  description = "사용자 접속 이름(v2-staging)을 내부 ALB 별칭으로 연결. 공개 CloudFront(shared/frontend)가 같은 이름을 소유하게 하려면 먼저 false로 내려 이 레코드를 제거한다(allow_overwrite=false라 겹치면 생성 실패)."
+}
+
 resource "aws_acm_certificate" "staging_origin" {
   count             = var.enable_staging_origin_name ? 1 : 0
   domain_name       = local.staging_origin_domain_name
