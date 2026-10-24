@@ -23,3 +23,16 @@
 - 시작 유예 확대: Main 컨테이너 `startPeriod` 90→300초(ECS 허용 최대), Main 서비스 `health_check_grace_period` 180→600초. 마이그레이션 중 ECS가 Task를 종료하지 않게 함. 300초 이상 걸리는 마이그레이션은 여전히 중단될 수 있음
 - 위험: MySQL DDL은 트랜잭션이 아니라 중간 중단 시 `flyway_schema_history`에 실패 이력과 부분 적용이 남아 수동 복구가 필요. 첫 실행 전 DB 스냅샷 확보 권장
 - `activation_checks.database_migrated`는 이 모드에서 "스냅샷 확보와 Fixture 적재를 확인했고 시작 시 자동 마이그레이션이 수행됨을 인지함"의 의미로 사용
+
+## 네트워크 모드 (`network_mode`)
+
+- 기본값 `awsvpc`(기존 동작). 운영은 이 값을 유지한다.
+- `bridge`: Task가 호스트 네트워크를 공유해 **Task별 ENI 한도(`t3.large`는 호스트당 2개)가 사라지고**, 롤링 배포의 추가 Task는 CPU·메모리만 있으면 배치된다. 호스트 포트는 동적(`hostPort=0`)이다.
+- `bridge`에서 바뀌는 것
+  - Task 보안 그룹과 Task 기준 규칙을 만들지 않고, 호스트(ECS 컨테이너 인스턴스) 보안 그룹 `container_instance_security_group_id`(필수, 같은 VPC) 기준 규칙을 만든다.
+  - ALB ↔ 호스트 동적 포트 범위 `32768-65535`, 호스트 자기 참조 동일 범위(Service Connect), DB는 호스트 보안 그룹 허용
+  - 대상 그룹 `target_type = instance`, ECS Service에서 `network_configuration` 제거
+- **보안 격리 약화**: awsvpc에서는 DB가 Main·Payment Task 그룹만 허용했지만, bridge에서는 호스트의 모든 Task가 같은 접근 범위를 가진다. 같은 호스트에 다른 서비스(예: AI)를 올릴 때 DB 접근이 함께 열리는 점을 고려할 것
+- 호스트 보안 그룹이 Secrets 엔드포인트 443과 외부 송신에 접근 가능한 규칙은 호스트를 소유한 Root가 이미 가지고 있어야 한다(이 모듈은 만들지 않음, 중복 규칙 오류 방지)
+- **전환 주의**: awsvpc → bridge는 `target_type`과 `network_configuration` 변경이라 대상 그룹·Service가 교체될 수 있다. Service가 `task_definition` 변경을 무시(CD 소유)하므로 기존 Service를 그대로 두고는 새 Task Definition이 반영되지 않는다. Task가 0개인 환경에서 먼저 시험하고, 운영은 별도의 무중단 전환 계획이 필요하다.
+- Service Connect는 bridge를 지원하나 `hostname` 컨테이너 설정과 TLS는 지원하지 않는다(AWS 문서). 현재 구성은 둘 다 사용하지 않는다.

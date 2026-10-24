@@ -217,6 +217,112 @@ run "flyway_with_same_user_as_app_is_rejected" {
   expect_failures = [terraform_data.guard]
 }
 
+run "bridge_mode_replaces_task_enis_with_host_level_rules" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      network_mode                         = "bridge"
+      container_instance_security_group_id = "sg-staging-instance"
+    })
+  }
+  assert {
+    condition = (
+      length(aws_security_group.task) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.main_from_alb) == 0 &&
+      length(aws_vpc_security_group_egress_rule.alb_to_main) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.payment_from_main) == 0 &&
+      length(aws_vpc_security_group_egress_rule.main_to_payment) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.database) == 0 &&
+      length(aws_vpc_security_group_egress_rule.database) == 0 &&
+      length(aws_vpc_security_group_egress_rule.https) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.secrets_endpoint) == 0
+    )
+    error_message = "bridge에서는 Task 보안 그룹과 Task 기준 규칙을 만들지 않아야 합니다."
+  }
+  assert {
+    condition = (
+      alltrue([for task in values(aws_ecs_task_definition.service) : task.network_mode == "bridge"]) &&
+      alltrue([for task in values(aws_ecs_task_definition.service) : jsondecode(task.container_definitions)[0].portMappings[0].hostPort == 0]) &&
+      alltrue([for service in values(aws_ecs_service.service) : length(service.network_configuration) == 0]) &&
+      aws_lb_target_group.main.target_type == "instance"
+    )
+    error_message = "bridge는 동적 호스트 포트(0), network_configuration 없음, instance 대상 그룹이어야 합니다."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.instance_from_alb[0].security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_ingress_rule.instance_from_alb[0].referenced_security_group_id == "sg-staging-alb" &&
+      aws_vpc_security_group_ingress_rule.instance_from_alb[0].from_port == 32768 &&
+      aws_vpc_security_group_ingress_rule.instance_from_alb[0].to_port == 65535 &&
+      aws_vpc_security_group_egress_rule.alb_to_instances[0].security_group_id == "sg-staging-alb" &&
+      aws_vpc_security_group_egress_rule.alb_to_instances[0].referenced_security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_egress_rule.alb_to_instances[0].from_port == 32768 &&
+      aws_vpc_security_group_egress_rule.alb_to_instances[0].to_port == 65535
+    )
+    error_message = "ALB와 호스트 보안 그룹 사이에 동적 포트 범위(32768-65535) 규칙이 있어야 합니다."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.instance_self[0].security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_ingress_rule.instance_self[0].referenced_security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_ingress_rule.database_from_instances[0].security_group_id == "sg-staging-mysql" &&
+      aws_vpc_security_group_ingress_rule.database_from_instances[0].referenced_security_group_id == "sg-staging-instance" &&
+      aws_vpc_security_group_ingress_rule.database_from_instances[0].from_port == 3306
+    )
+    error_message = "Service Connect용 호스트 자기 참조 규칙과 DB의 호스트 보안 그룹 허용 규칙이 있어야 합니다."
+  }
+}
+
+run "default_network_mode_stays_awsvpc" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  assert {
+    condition = (
+      length(aws_security_group.task) == 2 &&
+      alltrue([for task in values(aws_ecs_task_definition.service) : task.network_mode == "awsvpc"]) &&
+      alltrue([for task in values(aws_ecs_task_definition.service) : try(jsondecode(task.container_definitions)[0].portMappings[0].hostPort, null) == null]) &&
+      alltrue([for service in values(aws_ecs_service.service) : length(service.network_configuration) == 1]) &&
+      aws_lb_target_group.main.target_type == "ip" &&
+      length(aws_vpc_security_group_ingress_rule.instance_from_alb) == 0 &&
+      length(aws_vpc_security_group_egress_rule.alb_to_instances) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.instance_self) == 0 &&
+      length(aws_vpc_security_group_ingress_rule.database_from_instances) == 0
+    )
+    error_message = "기본값은 기존 awsvpc 구성(Task 보안 그룹, ip 대상 그룹, network_configuration)이 그대로여야 합니다."
+  }
+}
+
+run "bridge_requires_instance_security_group" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables { config = merge(var.config, { network_mode = "bridge" }) }
+  expect_failures = [terraform_data.guard]
+}
+
+run "unknown_network_mode_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables { config = merge(var.config, { network_mode = "host" }) }
+  expect_failures = [terraform_data.guard]
+}
+
+run "bridge_instance_security_group_from_other_vpc_is_rejected" {
+  command = plan
+  module { source = "../../../modules/be_split_runtime" }
+  variables {
+    config = merge(var.config, {
+      network_mode                         = "bridge"
+      container_instance_security_group_id = "sg-other-vpc"
+    })
+  }
+  override_data {
+    target = data.aws_security_group.instance[0]
+    values = { vpc_id = "vpc-other" }
+  }
+  expect_failures = [terraform_data.guard]
+}
+
 run "start_without_checks_is_rejected" {
   command = plan
   module { source = "../../../modules/be_split_runtime" }

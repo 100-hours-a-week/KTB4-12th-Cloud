@@ -60,8 +60,12 @@ variable "config" {
     scheduling_enabled            = optional(bool, false)
     ai_profile_scheduling_enabled = optional(bool, false)
     flyway_enabled                = optional(bool, false)
-    traffic_cutover               = optional(bool, false)
-    traffic_health_verified       = optional(bool, false)
+    # awsvpc(기본): Task마다 ENI·보안 그룹. bridge: 호스트 네트워크를 공유해 ENI 한도가 없고 동적 호스트 포트를 쓴다.
+    network_mode = optional(string, "awsvpc")
+    # bridge에서 필수. Task 대신 이 호스트(ECS 컨테이너 인스턴스) 보안 그룹에 접근 규칙을 만든다.
+    container_instance_security_group_id = optional(string, null)
+    traffic_cutover                      = optional(bool, false)
+    traffic_health_verified              = optional(bool, false)
     activation_checks = optional(object({
       database_migrated = bool
       network_verified  = bool

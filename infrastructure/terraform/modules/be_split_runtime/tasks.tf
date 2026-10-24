@@ -33,7 +33,7 @@ locals {
       essential    = true
       entryPoint   = ["/bin/sh", "-c"]
       command      = [file("${path.module}/rds-tls-bootstrap.sh")]
-      portMappings = [{ name = "main-backend", containerPort = 8080, protocol = "tcp", appProtocol = "http" }]
+      portMappings = [merge({ name = "main-backend", containerPort = 8080, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.main_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.main_secret_keys)) : {
         name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
@@ -59,7 +59,7 @@ locals {
       essential    = true
       entryPoint   = ["/bin/sh", "-c"]
       command      = [file("${path.module}/rds-tls-bootstrap.sh")]
-      portMappings = [{ name = "payment-server", containerPort = 8090, protocol = "tcp", appProtocol = "http" }]
+      portMappings = [merge({ name = "payment-server", containerPort = 8090, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.payment_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.payment_secret_keys)) : {
         name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
@@ -85,7 +85,7 @@ resource "aws_ecs_task_definition" "service" {
   for_each                 = local.names
   family                   = each.value
   requires_compatibilities = ["EC2"]
-  network_mode             = "awsvpc"
+  network_mode             = local.bridge ? "bridge" : "awsvpc"
   cpu                      = "512"
   memory                   = each.key == "main_backend" ? "1536" : "1024"
   execution_role_arn       = aws_iam_role.execution.arn
@@ -106,7 +106,7 @@ resource "aws_lb_target_group" "main" {
   name_prefix          = var.environment == "staging" ? "stgbm-" : "prdbm-"
   port                 = 8080
   protocol             = "HTTP"
-  target_type          = "ip"
+  target_type          = local.bridge ? "instance" : "ip"
   vpc_id               = var.config.vpc_id
   deregistration_delay = 60
   health_check {
@@ -164,10 +164,14 @@ resource "aws_ecs_service" "service" {
     base              = 1
     weight            = 1
   }
-  network_configuration {
-    subnets          = var.config.subnet_ids
-    security_groups  = [aws_security_group.task[each.key].id]
-    assign_public_ip = false
+  # bridge는 network_configuration을 허용하지 않는다.
+  dynamic "network_configuration" {
+    for_each = local.bridge ? [] : [1]
+    content {
+      subnets          = var.config.subnet_ids
+      security_groups  = [aws_security_group.task[each.key].id]
+      assign_public_ip = false
+    }
   }
   dynamic "load_balancer" {
     for_each = each.key == "main_backend" ? [1] : []
@@ -203,6 +207,10 @@ resource "aws_ecs_service" "service" {
     aws_vpc_security_group_ingress_rule.database,
     aws_vpc_security_group_ingress_rule.secrets_endpoint,
     aws_vpc_security_group_egress_rule.alb_to_main,
+    aws_vpc_security_group_ingress_rule.instance_from_alb,
+    aws_vpc_security_group_egress_rule.alb_to_instances,
+    aws_vpc_security_group_ingress_rule.instance_self,
+    aws_vpc_security_group_ingress_rule.database_from_instances,
     aws_lb_listener_rule.main_parking,
   ]
 }
