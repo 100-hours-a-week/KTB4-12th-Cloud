@@ -1,4 +1,14 @@
 locals {
+  bridge = var.config.network_mode == "bridge"
+  # 호스트 보안 그룹이 지정된 bridge에서만 호스트 기준 규칙을 만든다. 미지정이면 가드가 실패시킨다.
+  bridge_rules  = local.bridge && var.config.container_instance_security_group_id != null
+  task_sg_names = local.bridge ? {} : local.names
+  # ECS Linux 기본 동적 호스트 포트 범위(bridge에서 ALB·Service Connect 트래픽에 필요).
+  dynamic_port_from = 32768
+  dynamic_port_to   = 65535
+}
+
+locals {
   prefix = "seonjalal-v2-${var.environment}"
   names = {
     main_backend   = "${local.prefix}-main-backend"
@@ -49,6 +59,10 @@ data "aws_subnet" "app" {
 data "aws_security_group" "alb" { id = var.config.alb_security_group_id }
 data "aws_security_group" "database" { id = var.config.database_security_group_id }
 data "aws_security_group" "secrets_endpoint" { id = var.config.secrets_endpoint_security_group_id }
+data "aws_security_group" "instance" {
+  count = local.bridge && var.config.container_instance_security_group_id != null ? 1 : 0
+  id    = var.config.container_instance_security_group_id
+}
 data "aws_lb" "existing" { arn = var.config.alb_arn }
 data "aws_lb_listener" "https" { arn = var.config.alb_listener_arn }
 
@@ -72,6 +86,19 @@ resource "terraform_data" "guard" {
         (var.environment != "production" || var.config.application_domain_name == "v2-origin.seonjalal.com")
       )
       error_message = "같은 VPC의 두 AZ Private Subnet·환경별 내부 HTTPS Listener(운영8443/스테이징443)·해당 환경 Cluster/Namespace 필요."
+    }
+    precondition {
+      # bridge는 Task 보안 그룹이 없으므로 호스트 보안 그룹이 같은 VPC에 있어야 한다.
+      # 호스트 보안 그룹이 Secrets 엔드포인트 443에 접근 가능한 규칙은 호스트를 소유한 Root가 이미 가지고 있어야 한다.
+      condition = (
+        contains(["awsvpc", "bridge"], var.config.network_mode) &&
+        (!local.bridge || (
+          var.config.container_instance_security_group_id != null &&
+          length(data.aws_security_group.instance) == 1 &&
+          try(data.aws_security_group.instance[0].vpc_id, "") == var.config.vpc_id
+        ))
+      )
+      error_message = "network_mode는 awsvpc 또는 bridge이며, bridge는 같은 VPC의 container_instance_security_group_id가 필요합니다."
     }
     precondition {
       condition = (
@@ -167,13 +194,14 @@ resource "aws_iam_role_policy" "product_images" {
 }
 
 resource "aws_security_group" "task" {
-  for_each    = local.names
+  for_each    = local.task_sg_names
   name        = "${each.value}-runtime"
   description = "${each.value} private ECS task"
   vpc_id      = var.config.vpc_id
 }
 
 resource "aws_vpc_security_group_ingress_rule" "main_from_alb" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["main_backend"].id
   referenced_security_group_id = var.config.alb_security_group_id
   ip_protocol                  = "tcp"
@@ -181,6 +209,7 @@ resource "aws_vpc_security_group_ingress_rule" "main_from_alb" {
   to_port                      = 8080
 }
 resource "aws_vpc_security_group_egress_rule" "alb_to_main" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = var.config.alb_security_group_id
   referenced_security_group_id = aws_security_group.task["main_backend"].id
   ip_protocol                  = "tcp"
@@ -188,6 +217,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_main" {
   to_port                      = 8080
 }
 resource "aws_vpc_security_group_ingress_rule" "payment_from_main" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["payment_server"].id
   referenced_security_group_id = aws_security_group.task["main_backend"].id
   ip_protocol                  = "tcp"
@@ -195,6 +225,7 @@ resource "aws_vpc_security_group_ingress_rule" "payment_from_main" {
   to_port                      = 8090
 }
 resource "aws_vpc_security_group_egress_rule" "main_to_payment" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["main_backend"].id
   referenced_security_group_id = aws_security_group.task["payment_server"].id
   ip_protocol                  = "tcp"
@@ -202,7 +233,7 @@ resource "aws_vpc_security_group_egress_rule" "main_to_payment" {
   to_port                      = 8090
 }
 resource "aws_vpc_security_group_egress_rule" "database" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = aws_security_group.task[each.key].id
   referenced_security_group_id = var.config.database_security_group_id
   ip_protocol                  = "tcp"
@@ -210,7 +241,7 @@ resource "aws_vpc_security_group_egress_rule" "database" {
   to_port                      = 3306
 }
 resource "aws_vpc_security_group_ingress_rule" "database" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = var.config.database_security_group_id
   referenced_security_group_id = aws_security_group.task[each.key].id
   ip_protocol                  = "tcp"
@@ -218,7 +249,7 @@ resource "aws_vpc_security_group_ingress_rule" "database" {
   to_port                      = 3306
 }
 resource "aws_vpc_security_group_egress_rule" "https" {
-  for_each          = local.names
+  for_each          = local.task_sg_names
   security_group_id = aws_security_group.task[each.key].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
@@ -226,10 +257,51 @@ resource "aws_vpc_security_group_egress_rule" "https" {
   to_port           = 443
 }
 resource "aws_vpc_security_group_ingress_rule" "secrets_endpoint" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = var.config.secrets_endpoint_security_group_id
   referenced_security_group_id = aws_security_group.task[each.key].id
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
+}
+
+# ---- network_mode = "bridge" 전용: Task 대신 호스트 보안 그룹 기준 규칙 ----
+# ALB → 호스트의 동적 포트(Main의 호스트 포트).
+resource "aws_vpc_security_group_ingress_rule" "instance_from_alb" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.alb_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "ALB to ECS bridge tasks (dynamic host ports)"
+}
+resource "aws_vpc_security_group_egress_rule" "alb_to_instances" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.alb_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "ALB to ECS bridge tasks (dynamic host ports)"
+}
+# Service Connect: 호스트 간 Main → Payment 프록시 통신에 호스트끼리 동적 포트가 열려야 한다.
+resource "aws_vpc_security_group_ingress_rule" "instance_self" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "Service Connect between ECS bridge hosts"
+}
+# DB는 Task 보안 그룹 대신 호스트 보안 그룹을 허용한다(호스트의 모든 Task가 같은 접근 범위).
+resource "aws_vpc_security_group_ingress_rule" "database_from_instances" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.database_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 3306
+  to_port                      = 3306
+  description                  = "ECS bridge hosts to MySQL"
 }
