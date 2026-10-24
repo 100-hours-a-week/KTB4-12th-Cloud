@@ -20,6 +20,8 @@ MUTATIONS = {"register-task-definition", "update-service", "put-object", "create
 TASK_KEYS = ("family", "taskRoleArn", "executionRoleArn", "networkMode", "containerDefinitions", "volumes",
              "placementConstraints", "requiresCompatibilities", "cpu", "memory", "pidMode", "ipcMode",
              "proxyConfiguration", "inferenceAccelerators", "ephemeralStorage", "runtimePlatform", "enableFaultInjection")
+# 블루-그린 슬롯별 서비스 이름 접미사. blue는 기존 이름, green은 "-b".
+SLOTS = {"blue": "", "green": "-b"}
 
 
 class DeliveryError(Exception):
@@ -89,6 +91,27 @@ def service(api, cluster, name):
     return result["services"][0]
 
 
+def active_slots(api, cluster, env):
+    """Main 서비스가 ACTIVE이고 desired>0인 슬롯 이름 목록."""
+    found = []
+    for slot, suffix in SLOTS.items():
+        result = api("ecs", "describe-services", "--cluster", cluster, "--services", f"seonjalal-v2-{env}-main-backend{suffix}")
+        if any(item.get("status") == "ACTIVE" and item.get("desiredCount", 0) > 0 for item in result.get("services", [])):
+            found.append(slot)
+    return found
+
+
+def resolve_slot(api, cluster, env, requested):
+    """배포 대상 슬롯의 이름 접미사. auto는 서비스 중인 슬롯이 정확히 하나일 때만 허용."""
+    if requested != "auto":
+        require(requested in SLOTS, "슬롯 값 불일치")
+        return SLOTS[requested]
+    found = active_slots(api, cluster, env)
+    require(len(found) == 1, "서비스 중인 슬롯을 하나로 특정할 수 없음(" + (",".join(found) or "없음")
+            + "). 블루-그린 전환 중에는 backend_slot을 직접 지정")
+    return SLOTS[found[0]]
+
+
 def baseline(value):
     config = value.get("deploymentConfiguration", {})
     breaker = config.get("deploymentCircuitBreaker", {})
@@ -107,22 +130,27 @@ def render_task(task, container, uri):
     output = {key: copy.deepcopy(task[key]) for key in TASK_KEYS if key in task}
     matches = [item for item in output["containerDefinitions"] if item["name"] == container]
     require(len(matches) == 1, "이미지 교체 대상 컨테이너 불일치")
-    require(output.get("networkMode") == "awsvpc" and "EC2" in output.get("requiresCompatibilities", []),
-            "검토한 ECS on EC2/awsvpc Task만 지원")
+    # 기존 Task Definition을 복제해 이미지만 바꾸므로 네트워크 모드는 기존 서비스와 항상 같다.
+    require(output.get("networkMode") in ("awsvpc", "bridge") and "EC2" in output.get("requiresCompatibilities", []),
+            "검토한 ECS on EC2(awsvpc 또는 bridge) Task만 지원")
     matches[0]["image"] = uri
     return output
 
 
-def prepare_backend(api, env, release, layout, compatibility):
+def prepare_backend(api, env, release, layout, compatibility, slot="auto"):
     require(compatibility, "DB 스키마·신구 API/Payment 호환성 검토 체크 필요")
     version(release)
     cluster = f"seonjalal-v2-{env}-cluster"
+    # legacy-v1은 슬롯이 없다. split-v2는 서비스 중인 슬롯(또는 지정한 슬롯)의 서비스에 배포한다.
+    slot_suffix = "" if layout == "legacy-v1" else resolve_slot(api, cluster, env, slot)
+    payment_alias = "payment-server" + slot_suffix
+    slot_name = None if layout == "legacy-v1" else ("green" if slot_suffix else "blue")
     names = ([("backend", "backend", "v1-" + release + "-amd64")] if layout == "legacy-v1" else
              [("payment-server", "payment-server", "payment-server-" + release),
               ("main-backend", "main-backend", "main-backend-" + release)])
     plans = []
     for suffix, container, tag in names:
-        name = f"seonjalal-v2-{env}-" + suffix
+        name = f"seonjalal-v2-{env}-" + suffix + slot_suffix
         uri = image(api, "seonjalal/production/backend", tag)
         current = service(api, cluster, name)
         baseline(current)
@@ -137,13 +165,14 @@ def prepare_backend(api, env, release, layout, compatibility):
             connect = current.get("serviceConnectConfiguration", {})
             require(connect.get("enabled"), "분리형 Main/Payment Service Connect 구성이 먼저 필요")
             if suffix == "main-backend":
-                require(settings.get("PAYMENT_SERVER_BASE_URL") == "http://payment-server:8090",
+                require(settings.get("PAYMENT_SERVER_BASE_URL") == f"http://{payment_alias}:8090",
                         "Main의 Payment 내부주소/Service Connect alias 계약 불일치")
             else:
-                require(any(alias.get("dnsName") == "payment-server" and alias.get("port") == 8090
+                require(any(alias.get("dnsName") == payment_alias and alias.get("port") == 8090
                             for item in connect.get("services", []) for alias in item.get("clientAliases", [])),
                         "Payment Service Connect endpoint 미준비")
         plans.append({"service": name, "cluster": cluster, "previous": old, "definition": definition, "image": uri,
+                      "slot": slot_name,
                       "namespace": current.get("serviceConnectConfiguration", {}).get("namespace")})
     if layout == "split-v2":
         require(all(p["namespace"] for p in plans) and len({p["namespace"] for p in plans}) == 1,
@@ -323,10 +352,10 @@ def deliver(args, api, directory):
     require(api("sts", "get-caller-identity").get("Account") == ACCOUNT, "AWS 계정 불일치")
     # 모든선택대상의검사완료전에는등록/배포/업로드를하지않음.
     backends = prepare_backend(api, args.environment, args.backend_version, args.backend_layout,
-                               args.compatibility_reviewed == "true") if args.component in ("backend", "all") else []
+                               args.compatibility_reviewed == "true", getattr(args, "backend_slot", "auto")) if args.component in ("backend", "all") else []
     frontend = prepare_frontend(api, args.environment, args.frontend_version, directory) if args.component in ("frontend", "all") else None
     receipt = {"environment": args.environment, "apply": args.apply, "status": "validated",
-               "backend": [{"service": p["service"], "previous": p["previous"], "image": p["image"]} for p in backends],
+               "backend": [{"service": p["service"], "slot": p.get("slot"), "previous": p["previous"], "image": p["image"]} for p in backends],
                "frontend": {key: frontend[key] for key in ("bucket", "prefix", "distribution", "image")} if frontend else None,
                "limitations": ["DB schema rollback not performed", "private viewer/auth/payment QA remains required"]}
     path = directory / "receipt.json"
@@ -353,7 +382,7 @@ def deliver(args, api, directory):
         path.write_text(json.dumps(receipt, indent=2))
         raise
     receipt["status"] = "deployed"
-    receipt["backend"] = [{"service": p["service"], "previous": p["previous"], "new": p["new"], "image": p["image"]} for p in attempted]
+    receipt["backend"] = [{"service": p["service"], "slot": p.get("slot"), "previous": p["previous"], "new": p["new"], "image": p["image"]} for p in attempted]
     path.write_text(json.dumps(receipt, indent=2))
     print("V2_RELEASE_DEPLOYED_AND_INFRA_HEALTH_VERIFIED")
 
@@ -365,6 +394,8 @@ def main():
     parser.add_argument("--backend-version", default="")
     parser.add_argument("--frontend-version", default="")
     parser.add_argument("--backend-layout", choices=["legacy-v1", "split-v2"], default="split-v2")
+    parser.add_argument("--backend-slot", choices=["auto", "blue", "green"], default="auto",
+                        help="배포할 블루-그린 슬롯. auto는 서비스 중인 슬롯이 하나일 때만 선택")
     parser.add_argument("--compatibility-reviewed", choices=["true", "false"], default="false")
     parser.add_argument("--state-dir", required=True)
     parser.add_argument("--apply", action="store_true")
