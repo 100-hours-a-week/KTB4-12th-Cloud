@@ -1,0 +1,45 @@
+// 스테이징 접근 게이트. 보안 경계가 아니라 외부 노출을 줄이는 1차 장치다.
+// 입장 주소 /__gate?token=<값> 으로 들어오면 쿠키를 심고, 이후 요청은 쿠키가 맞을 때만 통과한다.
+var GATE_TOKEN = ${token_json};
+var GATE_COOKIE = 'stg_gate';
+
+function gateDenied() {
+    return {
+        statusCode: 403,
+        statusDescription: 'Forbidden',
+        headers: {'cache-control': {value: 'no-store'}},
+        body: 'Forbidden'
+    };
+}
+
+// 통과하면 null, 응답을 바로 돌려줘야 하면 그 응답 객체를 반환한다.
+function gate(request) {
+    if (!GATE_TOKEN) {
+        return gateDenied();
+    }
+    if (request.uri === '/__gate') {
+        var given = request.querystring && request.querystring.token;
+        if (given && given.value === GATE_TOKEN) {
+            return {
+                statusCode: 302,
+                statusDescription: 'Found',
+                headers: {
+                    location: {value: '/'},
+                    'cache-control': {value: 'no-store'}
+                },
+                cookies: {
+                    stg_gate: {
+                        value: GATE_TOKEN,
+                        attributes: 'Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000'
+                    }
+                }
+            };
+        }
+        return gateDenied();
+    }
+    var cookie = request.cookies && request.cookies[GATE_COOKIE];
+    if (!cookie || cookie.value !== GATE_TOKEN) {
+        return gateDenied();
+    }
+    return null;
+}

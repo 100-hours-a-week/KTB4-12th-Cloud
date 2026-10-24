@@ -16,6 +16,10 @@ mock_provider "aws" {
   }
 }
 
+mock_provider "aws" {
+  alias = "us_east_1"
+}
+
 variables {
   production_distribution_arn = null
   staging_cloudfront_enabled  = true
