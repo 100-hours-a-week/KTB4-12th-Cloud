@@ -44,6 +44,18 @@ run "delivery_covers_both_bluegreen_slots_only" {
     error_message = "다른 환경이나 와일드카드 서비스 이름으로 범위를 넓히면 안 된다."
   }
 }
+run "backend_deployer_reads_only_backend_repository" {
+  command = apply
+  variables {
+    deployment_targets = {
+      staging = { cloudfront_distribution_id = "E123456789", task_role_arns = ["arn:aws:iam::721744297924:role/seonjalal-v2-staging-task"], oidc_subject = "repo:100-hours-a-week/KTB4-12th-Cloud:environment:v2-staging" }
+    }
+  }
+  assert {
+    condition     = strcontains(aws_iam_role_policy.deployer["staging"].policy, "repository/seonjalal/production/backend") && !strcontains(aws_iam_role_policy.deployer["staging"].policy, "repository/seonjalal/production/frontend")
+    error_message = "BE 배포 Role은 BE 이미지 저장소만 조회해야 한다(FE 저장소 권한 없음)."
+  }
+}
 run "staging_delivery_is_scoped" {
   # mock_provider만 사용하므로 실제 AWS 생성 없이 계산된 ARN 포함 정책 검사.
   command = apply
