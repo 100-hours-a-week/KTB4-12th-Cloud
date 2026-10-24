@@ -1,5 +1,5 @@
 name: V2 Release Delivery
-run-name: V2 ${{ inputs.target_environment }} / ${{ inputs.component }} / FE ${{ inputs.frontend_version }} / BE ${{ inputs.backend_version }}
+run-name: V2 ${{ inputs.target_environment }} / BE ${{ inputs.backend_version }}
 
 on:
   workflow_dispatch:
@@ -9,16 +9,9 @@ on:
         required: true
         type: choice
         options: [staging, production]
-      component:
-        description: 배포 구성요소
-        required: true
-        type: choice
-        options: [backend, frontend, all]
       backend_version:
-        description: BE 릴리스 버전 (예 2.0.0), FE만 배포하면 생략
-        type: string
-      frontend_version:
-        description: FE 릴리스 버전 (예 1.3.2), BE만 배포하면 생략
+        description: BE 릴리스 버전 (예 2.0.0)
+        required: true
         type: string
       backend_layout:
         description: V1 단일 BE 이전 시험 / V2 Main·Payment 분리
@@ -58,17 +51,13 @@ jobs:
       actions: read
     env:
       TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
-      RELEASE_COMPONENT: ${{ inputs.component }}
       BACKEND_VERSION: ${{ inputs.backend_version }}
-      FRONTEND_VERSION: ${{ inputs.frontend_version }}
       BACKEND_LAYOUT: ${{ inputs.backend_layout }}
       COMPATIBILITY_REVIEWED: ${{ inputs.compatibility_reviewed }}
       DRY_RUN: ${{ inputs.dry_run }}
       V2_CD_READY: ${{ vars.V2_CD_READY }}
       V2_TASK_DEFINITION_OWNER: ${{ vars.V2_TASK_DEFINITION_OWNER }}
       V2_DEPLOY_ROLE_ARN: ${{ vars.V2_DEPLOY_ROLE_ARN }}
-      V2_FRONTEND_BUCKET: ${{ vars.V2_FRONTEND_BUCKET }}
-      V2_CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.V2_CLOUDFRONT_DISTRIBUTION_ID }}
       GH_TOKEN: ${{ github.token }}
       CHANGE_SUMMARY: ${{ inputs.change_summary }}
       AWS_REGION: ap-northeast-2
@@ -82,9 +71,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main
           test "$V2_CD_READY" = true || { echo 'V2_CD_READY 설정 전에는 배포할 수 없습니다.' >&2; exit 1; }
           test "$V2_DEPLOY_ROLE_ARN" = "arn:aws:iam::721744297924:role/seonjalal-v2-${TARGET_ENVIRONMENT}-release-deployer"
-          if [[ "$RELEASE_COMPONENT" != frontend ]]; then
-            test "$V2_TASK_DEFINITION_OWNER" = cd || { echo 'Terraform/CD 배포 소유권 정렬이 먼저 필요합니다.' >&2; exit 1; }
-          fi
+          test "$V2_TASK_DEFINITION_OWNER" = cd || { echo 'Terraform/CD 배포 소유권 정렬이 먼저 필요합니다.' >&2; exit 1; }
           if [[ "$TARGET_ENVIRONMENT" == production ]]; then
             # YAML environment 선언만으로 승인이 생기지 않으므로 실제 보호 규칙도 검사.
             REVIEWERS=$(gh api "repos/$GITHUB_REPOSITORY/environments/v2-production" \
@@ -103,10 +90,6 @@ jobs:
           allowed-account-ids: '721744297924'
           role-session-name: v2-${{ inputs.target_environment }}-delivery
 
-      - name: Log in to release ECR
-        if: inputs.component != 'backend'
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Validate all targets before deploying pinned release
         shell: bash
         run: |
@@ -115,9 +98,8 @@ jobs:
           if [[ "$DRY_RUN" == false ]]; then APPLY_ARGS+=(--apply); fi
           python3 scripts/deploy-v2-release.py \
             --environment "$TARGET_ENVIRONMENT" \
-            --component "$RELEASE_COMPONENT" \
+            --component backend \
             --backend-version "$BACKEND_VERSION" \
-            --frontend-version "$FRONTEND_VERSION" \
             --backend-layout "$BACKEND_LAYOUT" \
             --compatibility-reviewed "$COMPATIBILITY_REVIEWED" \
             --state-dir "$RUNNER_TEMP/v2-delivery" \
