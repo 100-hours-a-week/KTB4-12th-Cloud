@@ -146,3 +146,74 @@ run "active_service_rejects_single_task" {
 
   expect_failures = [var.desired_task_count]
 }
+
+run "split_runtime_hosts_allow_two_hosts_while_old_service_stays_dormant" {
+  command = plan
+
+  variables {
+    split_runtime_hosts_enabled = true
+    asg_min_size                = 2
+    asg_desired_capacity        = 2
+  }
+
+  assert {
+    condition = (
+      aws_ecs_service.backend[0].desired_count == 0 &&
+      aws_autoscaling_group.application.min_size == 2 &&
+      aws_autoscaling_group.application.desired_capacity == 2 &&
+      length(aws_autoscaling_group.application.suspended_processes) == 0
+    )
+    error_message = "분리 런타임 호스트 모드에서는 옛 백엔드 Task 0을 유지한 채 ASG 2대를 켜고 기동·교체 프로세스를 허용해야 함."
+  }
+}
+
+run "split_runtime_hosts_flag_alone_keeps_dormant_valid" {
+  command = plan
+
+  variables {
+    split_runtime_hosts_enabled = true
+  }
+
+  assert {
+    condition     = aws_autoscaling_group.application.desired_capacity == 0 && length(aws_ecs_service.backend) == 1
+    error_message = "모드를 켜도 용량 0 휴면 상태는 계속 유효해야 함."
+  }
+}
+
+run "split_runtime_hosts_reject_single_host" {
+  command = plan
+
+  variables {
+    split_runtime_hosts_enabled = true
+    asg_min_size                = 1
+    asg_desired_capacity        = 1
+  }
+
+  expect_failures = [aws_ecs_service.backend[0]]
+}
+
+run "split_runtime_hosts_reject_managed_scaling" {
+  command = plan
+
+  variables {
+    split_runtime_hosts_enabled = true
+    asg_min_size                = 2
+    asg_desired_capacity        = 2
+    managed_scaling_enabled     = true
+  }
+
+  expect_failures = [aws_ecs_service.backend[0]]
+}
+
+run "split_runtime_hosts_reject_without_alb" {
+  command = plan
+
+  variables {
+    split_runtime_hosts_enabled = true
+    asg_min_size                = 2
+    asg_desired_capacity        = 2
+    enable_alb                  = false
+  }
+
+  expect_failures = [aws_ecs_service.backend[0]]
+}

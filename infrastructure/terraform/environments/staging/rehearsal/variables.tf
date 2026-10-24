@@ -193,6 +193,11 @@ variable "desired_task_count" {
     error_message = "휴면 상태는 태스크0개, 활성 시험은 두 AZ 분산을 위해 최소 태스크2개 필요."
   }
 }
+variable "split_runtime_hosts_enabled" {
+  type        = bool
+  default     = false
+  description = "true이면 옛 단일 백엔드 Task가 0이어도 ASG를 2대 이상 켤 수 있다. Main/Payment 분리 런타임(staging/be-split-runtime)이 이 Root의 호스트와 용량 공급자를 쓸 때만 사용"
+}
 variable "task_cpu" {
   type    = number
   default = 512
