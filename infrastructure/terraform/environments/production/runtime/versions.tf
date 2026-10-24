@@ -22,6 +22,16 @@ variable "aws_profile" {
   default = "seonjalal-production"
 }
 
+variable "node_capacity" {
+  description = "BE ECS 호스트 수(min=desired=max). 기본 2대. 블루-그린 전환처럼 새 Task를 옆에 띄울 때만 임시로 4대까지 늘리고 완료 후 2로 되돌린다."
+  type        = number
+  default     = 2
+  validation {
+    condition     = contains([2, 3, 4], var.node_capacity)
+    error_message = "운영 BE 호스트는 2~4대만 허용한다."
+  }
+}
+
 variable "ai_desired_capacity" {
   description = "AI 전용 ECS 호스트 수. 기본 0대, 승인 후 최대 1대"
   type        = number
