@@ -112,6 +112,14 @@ def resolve_slot(api, cluster, env, requested):
     return SLOTS[found[0]]
 
 
+def service_connect(value):
+    """Service Connect 설정. describe-services는 이 설정을 Service 최상위가 아니라 PRIMARY 배포(deployments[])에 담아 준다."""
+    for deployment in value.get("deployments", []):
+        if deployment.get("status", "PRIMARY") == "PRIMARY" and deployment.get("serviceConnectConfiguration"):
+            return deployment["serviceConnectConfiguration"]
+    return value.get("serviceConnectConfiguration", {})
+
+
 def baseline(value):
     config = value.get("deploymentConfiguration", {})
     breaker = config.get("deploymentCircuitBreaker", {})
@@ -162,7 +170,7 @@ def prepare_backend(api, env, release, layout, compatibility, slot="auto"):
         if layout == "split-v2":
             settings = {item["name"]: item["value"] for item in target.get("environment", [])}
             require(settings.get("SPRING_FLYWAY_ENABLED") == "false", "분리형 서비스는 사전 DB Migration 완료 후 Flyway 비활성 Task로 배포 필요")
-            connect = current.get("serviceConnectConfiguration", {})
+            connect = service_connect(current)
             require(connect.get("enabled"), "분리형 Main/Payment Service Connect 구성이 먼저 필요")
             if suffix == "main-backend":
                 require(settings.get("PAYMENT_SERVER_BASE_URL") == f"http://{payment_alias}:8090",
@@ -173,7 +181,7 @@ def prepare_backend(api, env, release, layout, compatibility, slot="auto"):
                         "Payment Service Connect endpoint 미준비")
         plans.append({"service": name, "cluster": cluster, "previous": old, "definition": definition, "image": uri,
                       "slot": slot_name,
-                      "namespace": current.get("serviceConnectConfiguration", {}).get("namespace")})
+                      "namespace": service_connect(current).get("namespace")})
     if layout == "split-v2":
         require(all(p["namespace"] for p in plans) and len({p["namespace"] for p in plans}) == 1,
                 "Main/Payment Service Connect namespace 불일치")
