@@ -191,8 +191,9 @@ class DeliveryTests(unittest.TestCase):
                 if name not in names:
                     return {"services": []}
                 value = healthy("td-" + name)
-                value["serviceConnectConfiguration"] = {"enabled": True, "namespace": "ns", "services": [
-                    {"clientAliases": [{"dnsName": alias, "port": 8090}]}]}
+                # 실제 describe-services와 같은 위치: Service Connect 설정은 PRIMARY 배포 안에 있다(최상위에는 없음).
+                value["deployments"] = [{"status": "PRIMARY", "rolloutState": "COMPLETED", "serviceConnectConfiguration": {
+                    "enabled": True, "namespace": "ns", "services": [{"clientAliases": [{"dnsName": alias, "port": 8090}]}]}}]
                 return {"services": [value]}
             if operation == "describe-task-definition":
                 family = args[args.index("--task-definition") + 1][len("td-"):]
@@ -218,6 +219,24 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual([p["service"] for p in plans],
                          ["seonjalal-v2-staging-payment-server", "seonjalal-v2-staging-main-backend"])
         self.assertEqual({p["slot"] for p in plans}, {"blue"})
+
+    def test_service_connect_is_read_from_the_primary_deployment(self):
+        config = {"enabled": True, "namespace": "ns"}
+        real_shape = {"deployments": [{"status": "ACTIVE"}, {"status": "PRIMARY", "serviceConnectConfiguration": config}]}
+        self.assertEqual(cd.service_connect(real_shape), config)
+        self.assertEqual(cd.service_connect({"serviceConnectConfiguration": config}), config)
+        self.assertEqual(cd.service_connect({"deployments": [{"status": "PRIMARY"}]}), {})
+
+    def test_service_connect_disabled_service_is_rejected(self):
+        api = self._backend_api("-b", "payment-server-b", "bridge")
+        def without(service, operation, *args):
+            result = api(service, operation, *args)
+            if operation == "describe-services":
+                for item in result["services"]:
+                    item["deployments"][0].pop("serviceConnectConfiguration", None)
+            return result
+        with self.assertRaises(cd.DeliveryError):
+            cd.prepare_backend(without, "staging", "2.0.1", "split-v2", True, "green")
 
     def test_slot_alias_mismatch_is_rejected(self):
         # 새 슬롯 서비스인데 Main이 기존 슬롯의 Payment 주소를 바라보면 슬롯 분리가 깨진다.
