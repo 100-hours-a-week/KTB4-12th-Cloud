@@ -155,7 +155,8 @@ resource "aws_cloudfront_distribution" "staging_public" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     # CachingDisabled. 스테이징은 새 릴리스 승격 직후 바로 보여야 하므로 캐시하지 않는다.
-    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.staging_frontend_security[0].id
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.staging_web[0].arn
