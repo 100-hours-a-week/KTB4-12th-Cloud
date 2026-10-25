@@ -132,6 +132,99 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(output["containerDefinitions"][0]["environment"], original["containerDefinitions"][0]["environment"])
         self.assertTrue(output["containerDefinitions"][0]["image"].startswith("pinned@"))
 
+    def test_bridge_task_definition_is_allowed_and_unknown_mode_is_rejected(self):
+        bridge = task("family", "backend")
+        bridge["networkMode"] = "bridge"
+        self.assertEqual(cd.render_task(bridge, "backend", "pinned@sha256:" + "a" * 64)["networkMode"], "bridge")
+        for mode in ("host", "none", None):
+            broken = task("family", "backend")
+            broken["networkMode"] = mode
+            with self.assertRaises(cd.DeliveryError):
+                cd.render_task(broken, "backend", "pinned@sha256:" + "a" * 64)
+
+    def _slot_api(self, active):
+        """active: 서비스 이름 -> desiredCount. 없는 이름은 describe-services가 빈 목록을 반환."""
+        def api(service, operation, *args):
+            self.assertEqual(operation, "describe-services")
+            name = args[args.index("--services") + 1]
+            if name not in active:
+                return {"services": [], "failures": [{"reason": "MISSING"}]}
+            return {"services": [{"status": "ACTIVE", "desiredCount": active[name]}]}
+        return api
+
+    def test_slot_auto_selects_only_the_live_slot(self):
+        cluster, env = "seonjalal-v2-staging-cluster", "staging"
+        blue = {"seonjalal-v2-staging-main-backend": 2}
+        green = {"seonjalal-v2-staging-main-backend-b": 2}
+        self.assertEqual(cd.resolve_slot(self._slot_api(blue), cluster, env, "auto"), "")
+        self.assertEqual(cd.resolve_slot(self._slot_api(green), cluster, env, "auto"), "-b")
+        # 기존 슬롯이 desired 0으로 대기 중이면 서비스 중이 아니다.
+        retired = {**green, "seonjalal-v2-staging-main-backend": 0}
+        self.assertEqual(cd.resolve_slot(self._slot_api(retired), cluster, env, "auto"), "-b")
+
+    def test_slot_auto_refuses_ambiguous_or_missing_slot(self):
+        cluster, env = "seonjalal-v2-staging-cluster", "staging"
+        both = {"seonjalal-v2-staging-main-backend": 2, "seonjalal-v2-staging-main-backend-b": 2}
+        for active in (both, {}):
+            with self.assertRaises(cd.DeliveryError):
+                cd.resolve_slot(self._slot_api(active), cluster, env, "auto")
+
+    def test_explicit_slot_skips_discovery_and_rejects_unknown(self):
+        def never(*args, **kwargs):
+            self.fail("명시한 슬롯은 서비스 조회를 하지 않아야 한다")
+        self.assertEqual(cd.resolve_slot(never, "c", "staging", "green"), "-b")
+        self.assertEqual(cd.resolve_slot(never, "c", "staging", "blue"), "")
+        with self.assertRaises(cd.DeliveryError):
+            cd.resolve_slot(never, "c", "staging", "purple")
+
+    def _backend_api(self, suffix, alias, network_mode):
+        """지정한 슬롯의 Main/Payment만 정상 서비스로 응답하는 가짜 API."""
+        names = {f"seonjalal-v2-staging-payment-server{suffix}": "payment-server",
+                 f"seonjalal-v2-staging-main-backend{suffix}": "main-backend"}
+        def api(service, operation, *args):
+            if operation == "describe-repositories":
+                return {"repositories": [{"imageTagMutability": "IMMUTABLE"}]}
+            if operation == "describe-images":
+                return {"imageDetails": [{"imageDigest": "sha256:" + "a" * 64}]}
+            if operation == "describe-services":
+                name = args[args.index("--services") + 1]
+                if name not in names:
+                    return {"services": []}
+                value = healthy("td-" + name)
+                value["serviceConnectConfiguration"] = {"enabled": True, "namespace": "ns", "services": [
+                    {"clientAliases": [{"dnsName": alias, "port": 8090}]}]}
+                return {"services": [value]}
+            if operation == "describe-task-definition":
+                family = args[args.index("--task-definition") + 1][len("td-"):]
+                container = names[family]
+                definition = task(family, container)
+                definition["networkMode"] = network_mode
+                definition["containerDefinitions"][0]["environment"][1]["value"] = f"http://{alias}:8090"
+                return {"taskDefinition": definition}
+            self.fail("예상하지 않은 API: " + operation)
+        return api
+
+    def test_green_slot_deploys_to_suffixed_services_with_isolated_payment_alias(self):
+        api = self._backend_api("-b", "payment-server-b", "bridge")
+        plans = cd.prepare_backend(api, "staging", "2.0.1", "split-v2", True, "green")
+        self.assertEqual([p["service"] for p in plans],
+                         ["seonjalal-v2-staging-payment-server-b", "seonjalal-v2-staging-main-backend-b"])
+        self.assertEqual({p["slot"] for p in plans}, {"green"})
+        self.assertTrue(all(p["definition"]["networkMode"] == "bridge" for p in plans))
+
+    def test_blue_slot_keeps_existing_names_and_alias(self):
+        api = self._backend_api("", "payment-server", "awsvpc")
+        plans = cd.prepare_backend(api, "staging", "2.0.1", "split-v2", True, "blue")
+        self.assertEqual([p["service"] for p in plans],
+                         ["seonjalal-v2-staging-payment-server", "seonjalal-v2-staging-main-backend"])
+        self.assertEqual({p["slot"] for p in plans}, {"blue"})
+
+    def test_slot_alias_mismatch_is_rejected(self):
+        # 새 슬롯 서비스인데 Main이 기존 슬롯의 Payment 주소를 바라보면 슬롯 분리가 깨진다.
+        api = self._backend_api("-b", "payment-server", "bridge")
+        with self.assertRaises(cd.DeliveryError):
+            cd.prepare_backend(api, "staging", "2.0.1", "split-v2", True, "green")
+
     def test_baseline_requires_safe_service(self):
         cd.baseline(healthy())
         for value in ({**healthy(), "desiredCount": 0}, {**healthy(), "pendingCount": 1},

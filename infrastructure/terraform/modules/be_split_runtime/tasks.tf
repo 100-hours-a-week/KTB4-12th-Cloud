@@ -14,11 +14,14 @@ locals {
     AWS_EC2_METADATA_DISABLED                   = "true"
   }
   main_environment = merge(var.config.main_environment, local.base_environment, {
-    AI_CHAT_BASE_URL              = "http://ai-chat:7860"
+    # BE가 이 값 뒤에 "/{대화ID}"와 "/{대화ID}/turns/{turnId}/events"를 붙이므로 챗봇 API 경로까지 포함해야 함(끝에 / 금지).
+    AI_CHAT_BASE_URL              = "http://ai-chat:7860/v1/chat/conversations"
     AI_PROFILE_BASE_URL           = "http://ai-profiler:8001"
-    PAYMENT_SERVER_BASE_URL       = "http://payment-server:8090"
+    PAYMENT_SERVER_BASE_URL       = "http://payment-server${local.suffix}:8090"
     SCHEDULING_ENABLED            = tostring(var.config.scheduling_enabled)
     AI_PROFILE_SCHEDULING_ENABLED = tostring(var.config.ai_profile_scheduling_enabled)
+    # Flyway 마이그레이션은 스키마를 소유한 Main에서만 실행한다. Payment는 마이그레이션 파일이 없어 항상 꺼 둔다.
+    SPRING_FLYWAY_ENABLED = tostring(var.config.flyway_enabled)
   })
   payment_environment = merge(var.config.payment_environment, local.base_environment, {
     PAYMENT_SERVER_PORT = "8090"
@@ -30,20 +33,21 @@ locals {
       essential    = true
       entryPoint   = ["/bin/sh", "-c"]
       command      = [file("${path.module}/rds-tls-bootstrap.sh")]
-      portMappings = [{ name = "main-backend", containerPort = 8080, protocol = "tcp", appProtocol = "http" }]
+      portMappings = [merge({ name = "main-backend", containerPort = 8080, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.main_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.main_secret_keys)) : {
-        name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
+        name = key, valueFrom = "${local.secret_arn}:${key}::"
       }]
       healthCheck = {
-        command  = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
-        interval = 10, timeout = 5, retries = 3, startPeriod = 90
+        command = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
+        # Flyway가 켜지면 마이그레이션이 끝나기 전에 Task가 종료되지 않도록 시작 유예를 ECS 허용 최대값(300초)으로 늘린다.
+        interval = 10, timeout = 5, retries = 3, startPeriod = var.config.flyway_enabled ? 300 : 90
       }
       stopTimeout = 60
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.service["main_backend"].name
+          awslogs-group         = local.log_group_names["main_backend"]
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "main-backend"
         }
@@ -55,10 +59,10 @@ locals {
       essential    = true
       entryPoint   = ["/bin/sh", "-c"]
       command      = [file("${path.module}/rds-tls-bootstrap.sh")]
-      portMappings = [{ name = "payment-server", containerPort = 8090, protocol = "tcp", appProtocol = "http" }]
+      portMappings = [merge({ name = "payment-server", containerPort = 8090, protocol = "tcp", appProtocol = "http" }, local.bridge ? { hostPort = 0 } : {})]
       environment  = [for key, value in local.payment_environment : { name = key, value = value }]
       secrets = [for key in sort(tolist(var.config.payment_secret_keys)) : {
-        name = key, valueFrom = "${aws_secretsmanager_secret.runtime.arn}:${key}::"
+        name = key, valueFrom = "${local.secret_arn}:${key}::"
       }]
       healthCheck = {
         command  = ["CMD-SHELL", "curl -fsS --max-time 3 http://127.0.0.1:8090/actuator/health >/dev/null || exit 1"]
@@ -68,7 +72,7 @@ locals {
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.service["payment_server"].name
+          awslogs-group         = local.log_group_names["payment_server"]
           awslogs-region        = var.aws_region
           awslogs-stream-prefix = "payment-server"
         }
@@ -81,11 +85,11 @@ resource "aws_ecs_task_definition" "service" {
   for_each                 = local.names
   family                   = each.value
   requires_compatibilities = ["EC2"]
-  network_mode             = "awsvpc"
+  network_mode             = local.bridge ? "bridge" : "awsvpc"
   cpu                      = "512"
   memory                   = each.key == "main_backend" ? "1536" : "1024"
-  execution_role_arn       = aws_iam_role.execution.arn
-  task_role_arn            = aws_iam_role.task[each.key].arn
+  execution_role_arn       = local.execution_role_arn
+  task_role_arn            = local.task_role_arns[each.key]
   container_definitions    = jsonencode([local.containers[each.key]])
   skip_destroy             = true
   runtime_platform {
@@ -102,7 +106,7 @@ resource "aws_lb_target_group" "main" {
   name_prefix          = var.environment == "staging" ? "stgbm-" : "prdbm-"
   port                 = 8080
   protocol             = "HTTP"
-  target_type          = "ip"
+  target_type          = local.bridge ? "instance" : "ip"
   vpc_id               = var.config.vpc_id
   deregistration_delay = 60
   health_check {
@@ -121,9 +125,9 @@ resource "aws_lb_target_group" "main" {
 # 운영 요청 Host와 일치하지 않는 예약된 .invalid Host로 먼저 연결하고,
 # 실제 운영 Host 전환은 main_cutover의 별도 승인 경계로 유지한다.
 resource "aws_lb_listener_rule" "main_parking" {
-  count        = var.environment == "production" ? 1 : 0
+  count        = 1
   listener_arn = var.config.alb_listener_arn
-  priority     = 8
+  priority     = var.config.parking_rule_priority
 
   action {
     type             = "forward"
@@ -131,7 +135,7 @@ resource "aws_lb_listener_rule" "main_parking" {
   }
 
   condition {
-    host_header { values = ["seonjalal-v2-production-prewarm.invalid"] }
+    host_header { values = ["${local.prefix}-prewarm${local.suffix}.invalid"] }
   }
 
   condition {
@@ -147,7 +151,7 @@ resource "aws_ecs_service" "service" {
   desired_count                      = var.config.desired_count
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
-  health_check_grace_period_seconds  = each.key == "main_backend" ? 180 : null
+  health_check_grace_period_seconds  = each.key == "main_backend" ? (var.config.flyway_enabled ? 600 : 180) : null
   enable_ecs_managed_tags            = true
   propagate_tags                     = "SERVICE"
   deployment_controller { type = "ECS" }
@@ -160,10 +164,14 @@ resource "aws_ecs_service" "service" {
     base              = 1
     weight            = 1
   }
-  network_configuration {
-    subnets          = var.config.subnet_ids
-    security_groups  = [aws_security_group.task[each.key].id]
-    assign_public_ip = false
+  # bridge는 network_configuration을 허용하지 않는다.
+  dynamic "network_configuration" {
+    for_each = local.bridge ? [] : [1]
+    content {
+      subnets          = var.config.subnet_ids
+      security_groups  = [aws_security_group.task[each.key].id]
+      assign_public_ip = false
+    }
   }
   dynamic "load_balancer" {
     for_each = each.key == "main_backend" ? [1] : []
@@ -180,8 +188,10 @@ resource "aws_ecs_service" "service" {
       for_each = each.key == "payment_server" ? [1] : []
       content {
         port_name = "payment-server"
+        # 접미사 슬롯은 별도 이름으로 등록해 기존 슬롯과 서로 호출하지 않는다(awsvpc와 bridge가 섞인 통신을 피한다).
+        discovery_name = local.suffix == "" ? null : "payment-server${local.suffix}"
         client_alias {
-          dns_name = "payment-server"
+          dns_name = "payment-server${local.suffix}"
           port     = 8090
         }
       }
@@ -193,12 +203,19 @@ resource "aws_ecs_service" "service" {
     ignore_changes = [task_definition]
   }
   depends_on = [
+    aws_cloudwatch_log_group.service,
     aws_iam_role_policy_attachment.execution,
     aws_iam_role_policy.secrets,
     aws_iam_role_policy.product_images,
     aws_vpc_security_group_ingress_rule.database,
     aws_vpc_security_group_ingress_rule.secrets_endpoint,
     aws_vpc_security_group_egress_rule.alb_to_main,
+    aws_vpc_security_group_ingress_rule.instance_from_alb,
+    aws_vpc_security_group_egress_rule.alb_to_instances,
+    aws_vpc_security_group_ingress_rule.instance_self,
+    aws_vpc_security_group_ingress_rule.database_from_instances,
+    aws_vpc_security_group_egress_rule.instance_to_database,
+    aws_vpc_security_group_egress_rule.instance_self,
     aws_lb_listener_rule.main_parking,
   ]
 }
@@ -209,8 +226,22 @@ resource "aws_lb_listener_rule" "main_cutover" {
   listener_arn = var.config.alb_listener_arn
   priority     = var.config.listener_rule_priority
   action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.main.arn
+    type = "forward"
+    # 새 슬롯이 없으면 기존 형태 그대로 둔다(기존 Rule에 변경이 생기지 않는다).
+    target_group_arn = var.config.green_target_group == null ? aws_lb_target_group.main.arn : null
+    dynamic "forward" {
+      for_each = var.config.green_target_group == null ? [] : [var.config.green_target_group]
+      content {
+        target_group {
+          arn    = aws_lb_target_group.main.arn
+          weight = 100 - forward.value.weight
+        }
+        target_group {
+          arn    = forward.value.arn
+          weight = forward.value.weight
+        }
+      }
+    }
   }
   condition {
     host_header { values = [var.config.application_domain_name] }
@@ -218,7 +249,8 @@ resource "aws_lb_listener_rule" "main_cutover" {
   lifecycle {
     precondition {
       condition = (
-        var.config.desired_count >= 2 &&
+        # 퇴역 슬롯(새 슬롯이 가중치 100)은 Task 0개로 Rule만 소유할 수 있다.
+        (var.config.desired_count >= 2 || (var.config.green_target_group != null && try(var.config.green_target_group.weight, 0) == 100)) &&
         var.config.traffic_health_verified &&
         alltrue(values(var.config.activation_checks)) &&
         (var.environment != "production" || var.config.listener_rule_priority == 9)

@@ -1,0 +1,13 @@
+# 실제 값으로 로컬 terraform.tfvars 작성. 예시 그대로 Apply 금지. 이 파일은 커밋하지 않는다.
+aws_account_id  = "000000000000"
+aws_profile     = "YOUR_AWS_PROFILE"
+vpc_id          = "vpc-REPLACE"
+data_subnet_ids = ["subnet-DATA_A", "subnet-DATA_C"]
+
+# 기본값 false. 스냅샷·사양·비용 확인 후 true로 바꾼 저장 Plan을 검토한다.
+enable_database = false
+
+# 복원할 스냅샷. 데이터 성격(실사용자 정보 포함 여부)을 확인한 스냅샷만 사용한다.
+snapshot_identifier = "REPLACE_WITH_REVIEWED_SNAPSHOT"
+# 스냅샷이 암호화되어 있으면 같은 KMS 키를 지정한다(생략하면 스냅샷 키를 사용).
+# snapshot_kms_key_arn = "arn:aws:kms:ap-northeast-2:ACCOUNT:key/KEY_ID"

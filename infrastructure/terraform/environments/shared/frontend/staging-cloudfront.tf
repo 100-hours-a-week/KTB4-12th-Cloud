@@ -82,7 +82,7 @@ resource "aws_cloudfront_distribution" "staging" {
 # 공유 버킷 정책의 소유자는 이 Root 하나다. 운영 원본 경로 변경 전 새 정적 파일
 # Prefix의 읽기 권한을 먼저 열되, 기존 버전 Prefix도 계속 포함해 현행 화면을 유지한다.
 resource "aws_s3_bucket_policy" "frontend_cloudfront" {
-  count  = var.staging_cloudfront_enabled || var.production_distribution_arn != null ? 1 : 0
+  count  = var.staging_cloudfront_enabled || var.staging_public_enabled || var.production_distribution_arn != null ? 1 : 0
   bucket = aws_s3_bucket.frontend.id
   policy = jsonencode({
     Version = "2012-10-17"
@@ -95,6 +95,17 @@ resource "aws_s3_bucket_policy" "frontend_cloudfront" {
       Condition = {
         StringEquals = {
           "AWS:SourceArn" = aws_cloudfront_distribution.staging[0].arn
+        }
+      }
+      }] : [], var.staging_public_enabled ? [{
+      Sid       = "StagingPublicCloudFrontReadOnly"
+      Effect    = "Allow"
+      Principal = { Service = "cloudfront.amazonaws.com" }
+      Action    = "s3:GetObject"
+      Resource  = "${aws_s3_bucket.frontend.arn}/${local.environment_prefixes.staging}*"
+      Condition = {
+        StringEquals = {
+          "AWS:SourceArn" = aws_cloudfront_distribution.staging_public[0].arn
         }
       }
       }] : [], var.production_distribution_arn != null ? [{

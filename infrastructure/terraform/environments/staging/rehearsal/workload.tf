@@ -156,16 +156,26 @@ resource "aws_ecs_service" "backend" {
   lifecycle {
     precondition {
       condition = var.desired_task_count == 0 ? (
-        var.asg_min_size == 0 &&
-        var.asg_desired_capacity == 0 &&
-        !var.managed_scaling_enabled
+        (
+          var.asg_min_size == 0 &&
+          var.asg_desired_capacity == 0 &&
+          !var.managed_scaling_enabled
+          ) || (
+          # 분리 런타임이 이 호스트를 쓰는 동안에는 옛 단일 백엔드 Task가 0이어도 호스트 2대 이상을 허용한다.
+          var.split_runtime_hosts_enabled &&
+          var.enable_alb &&
+          var.private_egress_verified &&
+          var.asg_min_size >= 2 &&
+          var.asg_desired_capacity >= 2 &&
+          !var.managed_scaling_enabled
+        )
         ) : (
         var.enable_alb &&
         var.private_egress_verified &&
         var.asg_min_size >= 2 &&
         var.asg_desired_capacity >= 2
       )
-      error_message = "휴면 Service는 task0·ASG min/desired0·ManagedScaling 비활성, 활성 Service는 ALB/Egress 검증과 최소 EC2/Task2개 필요."
+      error_message = "휴면 Service는 task0·ASG min/desired0·ManagedScaling 비활성(분리 런타임 호스트 모드는 ALB/Egress 검증과 EC2 2대 이상), 활성 Service는 ALB/Egress 검증과 최소 EC2/Task2개 필요."
     }
   }
 }

@@ -41,3 +41,8 @@ desired_task_count = 0
 # 와일드카드 허용·중계의 Origin 위장으로 인증용 Origin 검사를 우회하지 않는다.
 # container_secrets = { DB_PASSWORD = { secret_arn = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:STAGING_RUNTIME", json_key = "DB_PASSWORD" } }
 # enable_service = true
+
+# Main/Payment 분리 런타임(staging/be-split-runtime)이 이 Root의 호스트를 쓸 때만 true.
+# true이면 desired_task_count=0(옛 단일 백엔드 비활성)에서도 asg_min_size/asg_desired_capacity를 2 이상으로 둘 수 있다.
+# 켠 상태에서는 enable_alb=true, private_egress_verified=true, managed_scaling_enabled=false가 필요하다.
+# split_runtime_hosts_enabled = false

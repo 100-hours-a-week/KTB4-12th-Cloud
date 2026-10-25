@@ -15,3 +15,9 @@
 - `aws_ecs_cluster_capacity_providers.production`은 기존 BE 공급자와 AI 공급자를 함께 등록하되 기본 전략은 BE 공급자로 유지한다. 저장 Plan에서 기존 BE Service·ASG·Task Definition·Listener의 교체/삭제가 없어야 한다.
 - 최초 Apply는 새 Launch Template·ASG(0대)·Capacity Provider와 Cluster 연결 변경만 예상한다. 실제 비용과 서비스 영향은 저장 Plan 검토 후 승인한다.
 - 기존 운영 Root가 이미 관리하는 공급자 연결을 다른 Terraform State에서 중복 관리하지 않는다.
+
+## 호스트 수 변수 (`node_capacity`)
+
+- BE ASG의 `min_size = desired_capacity = max_size`는 `node_capacity`(기본 2, 허용 2~4)로 정한다. 기본값에서는 기존과 동일하다.
+- 블루-그린 전환처럼 새 Task를 옆에 띄울 때만 `-var='node_capacity=4'`로 임시 증설하고, 전환과 정리가 끝나면 2로 되돌린다. 축소는 ECS Managed Draining이 Task를 옮긴 뒤 호스트를 종료한다.
+- plan·apply 때 `ai_desired_capacity`와 함께 지정한다. 예: `-var='ai_desired_capacity=1' -var='node_capacity=4'`.

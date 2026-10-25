@@ -18,7 +18,7 @@ override_data {
   values = { vpc_id = "vpc-production", availability_zone = "ap-northeast-2c", map_public_ip_on_launch = false }
 }
 override_resource {
-  target          = aws_secretsmanager_secret.runtime
+  target          = aws_secretsmanager_secret.runtime[0]
   override_during = plan
   values          = { arn = "arn:aws:secretsmanager:ap-northeast-2:000000000000:secret:seonjalal/production/backend/split-runtime-aaaaaa" }
 }
@@ -113,12 +113,12 @@ run "dormant_split_contract" {
   assert {
     condition = (
       anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "PAYMENT_SERVER_BASE_URL" && e.value == "http://payment-server:8090"]) &&
-      anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "AI_CHAT_BASE_URL" && e.value == "http://ai-chat:7860"]) &&
+      anytrue([for e in jsondecode(aws_ecs_task_definition.service["main_backend"].container_definitions)[0].environment : e.name == "AI_CHAT_BASE_URL" && e.value == "http://ai-chat:7860/v1/chat/conversations"]) &&
       alltrue([for task in values(aws_ecs_task_definition.service) :
         anytrue([for e in jsondecode(task.container_definitions)[0].environment : e.name == "SPRING_FLYWAY_ENABLED" && e.value == "false"])
       ]) &&
-      jsondecode(aws_iam_role_policy.product_images.policy).Statement[0].Action == ["s3:GetObject"] &&
-      jsondecode(aws_iam_role_policy.product_images.policy).Statement[0].Resource == "arn:aws:s3:::gift-production-images-example/products/production/*"
+      jsondecode(aws_iam_role_policy.product_images[0].policy).Statement[0].Action == ["s3:GetObject"] &&
+      jsondecode(aws_iam_role_policy.product_images[0].policy).Statement[0].Resource == "arn:aws:s3:::gift-production-images-example/products/production/*"
     )
     error_message = "BE Main 내부 Service Connect 주소 필요."
   }

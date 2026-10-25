@@ -1,10 +1,31 @@
 locals {
+  bridge = var.config.network_mode == "bridge"
+  # 호스트 보안 그룹이 지정된 bridge에서만 호스트 기준 규칙을 만든다. 미지정이면 가드가 실패시킨다.
+  bridge_rules  = local.bridge && var.config.container_instance_security_group_id != null && var.config.manage_host_rules
+  task_sg_names = local.bridge ? {} : local.names
+  # ECS Linux 기본 동적 호스트 포트 범위(bridge에서 ALB·Service Connect 트래픽에 필요).
+  dynamic_port_from = 32768
+  dynamic_port_to   = 65535
+}
+
+locals {
   prefix = "seonjalal-v2-${var.environment}"
-  names = {
+  suffix = var.config.name_suffix
+  shared = var.config.shared_resources
+  # 접미사 슬롯은 기존 슬롯의 IAM Role·Secret·로그 그룹을 재사용하고 새로 만들지 않는다.
+  owns_shared = local.shared == null
+  # 로그 그룹·IAM Role 이름의 기준. 슬롯과 무관하게 접미사가 없다.
+  shared_names = {
     main_backend   = "${local.prefix}-main-backend"
     payment_server = "${local.prefix}-payment-server"
   }
-  ports = { main_backend = 8080, payment_server = 8090 }
+  # 서비스·Task 패밀리 이름. 접미사 슬롯은 기존 슬롯과 이름이 겹치지 않는다.
+  names              = { for key, name in local.shared_names : key => "${name}${local.suffix}" }
+  secret_arn         = local.owns_shared ? aws_secretsmanager_secret.runtime[0].arn : local.shared.secret_arn
+  execution_role_arn = local.owns_shared ? aws_iam_role.execution[0].arn : local.shared.execution_role_arn
+  task_role_arns     = local.owns_shared ? { for key, role in aws_iam_role.task : key => role.arn } : local.shared.task_role_arns
+  log_group_names    = { for key, name in local.shared_names : key => "/ecs/${name}" }
+  ports              = { main_backend = 8080, payment_server = 8090 }
   trust = jsonencode({
     Version = "2012-10-17"
     Statement = [{
@@ -49,6 +70,10 @@ data "aws_subnet" "app" {
 data "aws_security_group" "alb" { id = var.config.alb_security_group_id }
 data "aws_security_group" "database" { id = var.config.database_security_group_id }
 data "aws_security_group" "secrets_endpoint" { id = var.config.secrets_endpoint_security_group_id }
+data "aws_security_group" "instance" {
+  count = local.bridge && var.config.container_instance_security_group_id != null ? 1 : 0
+  id    = var.config.container_instance_security_group_id
+}
 data "aws_lb" "existing" { arn = var.config.alb_arn }
 data "aws_lb_listener" "https" { arn = var.config.alb_listener_arn }
 
@@ -72,6 +97,19 @@ resource "terraform_data" "guard" {
         (var.environment != "production" || var.config.application_domain_name == "v2-origin.seonjalal.com")
       )
       error_message = "같은 VPC의 두 AZ Private Subnet·환경별 내부 HTTPS Listener(운영8443/스테이징443)·해당 환경 Cluster/Namespace 필요."
+    }
+    precondition {
+      # bridge는 Task 보안 그룹이 없으므로 호스트 보안 그룹이 같은 VPC에 있어야 한다.
+      # 호스트 보안 그룹이 Secrets 엔드포인트 443에 접근 가능한 규칙은 호스트를 소유한 Root가 이미 가지고 있어야 한다.
+      condition = (
+        contains(["awsvpc", "bridge"], var.config.network_mode) &&
+        (!local.bridge || (
+          var.config.container_instance_security_group_id != null &&
+          length(data.aws_security_group.instance) == 1 &&
+          try(data.aws_security_group.instance[0].vpc_id, "") == var.config.vpc_id
+        ))
+      )
+      error_message = "network_mode는 awsvpc 또는 bridge이며, bridge는 같은 VPC의 container_instance_security_group_id가 필요합니다."
     }
     precondition {
       condition = (
@@ -106,50 +144,106 @@ resource "terraform_data" "guard" {
       error_message = "Main/Payment 모두 지정 MySQL RDS/DB와 JDBC VERIFY_IDENTITY 한 개가 필요합니다."
     }
     precondition {
+      # Flyway는 앱 런타임 계정과 분리된 전용 계정으로 실행한다(앱 계정에 DDL 권한을 주지 않기 위함).
+      # 비밀번호는 평문 환경변수가 아니라 Secret JSON 키로만 주입한다.
+      condition = !var.config.flyway_enabled || (
+        contains(keys(var.config.main_environment), "SPRING_FLYWAY_USER") &&
+        contains(var.config.main_secret_keys, "SPRING_FLYWAY_PASSWORD") &&
+        lookup(var.config.main_environment, "SPRING_FLYWAY_USER", "") != lookup(var.config.main_environment, "DB_USERNAME", "")
+      )
+      error_message = "Flyway 자동 실행에는 앱 계정과 다른 SPRING_FLYWAY_USER(환경변수)와 SPRING_FLYWAY_PASSWORD(Secret 키)가 필요합니다."
+    }
+    precondition {
       condition     = var.config.desired_count == 0 || alltrue(values(var.config.activation_checks))
       error_message = "기동 전 Migration·네트워크·용량·Secret·이미지·API 호환성 확인이 필요합니다."
+    }
+    precondition {
+      # 접미사 슬롯은 공유 자원 재사용이 필수이고, 자체 전환 Rule과 가중치 Rule을 만들 수 없다(전환 Rule은 기존 슬롯 하나만 소유).
+      condition = (
+        can(regex("^(-[a-z0-9]{1,8})?$", local.suffix)) &&
+        (local.suffix != "") == (local.shared != null) &&
+        (local.suffix == "" || (!var.config.traffic_cutover && var.config.green_target_group == null))
+      )
+      error_message = "name_suffix는 '-영숫자' 형식이며 shared_resources와 함께만 쓰고, 접미사 슬롯은 traffic_cutover·green_target_group을 사용할 수 없습니다."
+    }
+    precondition {
+      condition = var.config.green_target_group == null || (
+        var.config.traffic_cutover &&
+        var.config.green_target_group.weight >= 0 &&
+        var.config.green_target_group.weight <= 100 &&
+        floor(var.config.green_target_group.weight) == var.config.green_target_group.weight
+      )
+      error_message = "green_target_group은 traffic_cutover가 켜진 기존 슬롯에서만, 0~100 정수 가중치로 사용할 수 있습니다."
     }
   }
 }
 
+# 단일 리소스에 count를 도입하면서 기존 State 주소를 새 주소로 옮긴다. 실제 AWS 리소스는 변경되지 않는다.
+moved {
+  from = aws_secretsmanager_secret.runtime
+  to   = aws_secretsmanager_secret.runtime[0]
+}
+moved {
+  from = aws_iam_role.execution
+  to   = aws_iam_role.execution[0]
+}
+moved {
+  from = aws_iam_role_policy_attachment.execution
+  to   = aws_iam_role_policy_attachment.execution[0]
+}
+moved {
+  from = aws_iam_role_policy.secrets
+  to   = aws_iam_role_policy.secrets[0]
+}
+moved {
+  from = aws_iam_role_policy.product_images
+  to   = aws_iam_role_policy.product_images[0]
+}
+
+# 아래 공유 자원은 기존 슬롯만 소유한다. 접미사 슬롯은 shared_resources로 ARN을 받아 재사용한다.
 resource "aws_cloudwatch_log_group" "service" {
-  for_each          = local.names
+  for_each          = local.owns_shared ? local.shared_names : {}
   name              = "/ecs/${each.value}"
   retention_in_days = local.log_retention
 }
 
 # JSON 값은 별도 안전한 bootstrap으로 저장. Terraform State에는 Secret 값이 없다.
 resource "aws_secretsmanager_secret" "runtime" {
+  count                   = local.owns_shared ? 1 : 0
   name                    = "seonjalal/${var.environment}/backend/split-runtime"
   recovery_window_in_days = 30
   lifecycle { prevent_destroy = true }
 }
 
 resource "aws_iam_role" "execution" {
+  count              = local.owns_shared ? 1 : 0
   name               = "${local.prefix}-split-execution"
   assume_role_policy = local.trust
 }
 resource "aws_iam_role_policy_attachment" "execution" {
-  role       = aws_iam_role.execution.name
+  count      = local.owns_shared ? 1 : 0
+  role       = aws_iam_role.execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 resource "aws_iam_role_policy" "secrets" {
-  name = "InjectOnlySplitBackendSecret"
-  role = aws_iam_role.execution.id
+  count = local.owns_shared ? 1 : 0
+  name  = "InjectOnlySplitBackendSecret"
+  role  = aws_iam_role.execution[0].id
   policy = jsonencode({
     Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.runtime.arn }]
+    Statement = [{ Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.runtime[0].arn }]
   })
 }
 
 resource "aws_iam_role" "task" {
-  for_each           = local.names
+  for_each           = local.owns_shared ? local.shared_names : {}
   name               = "${each.value}-task"
   assume_role_policy = local.trust
 }
 resource "aws_iam_role_policy" "product_images" {
-  name = "ReadOnlyProductImages"
-  role = aws_iam_role.task["main_backend"].id
+  count = local.owns_shared ? 1 : 0
+  name  = "ReadOnlyProductImages"
+  role  = aws_iam_role.task["main_backend"].id
   policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Action = ["s3:GetObject"], Resource = "arn:aws:s3:::${var.config.product_image_bucket}/${var.config.product_image_prefix}*" }]
@@ -157,13 +251,14 @@ resource "aws_iam_role_policy" "product_images" {
 }
 
 resource "aws_security_group" "task" {
-  for_each    = local.names
+  for_each    = local.task_sg_names
   name        = "${each.value}-runtime"
   description = "${each.value} private ECS task"
   vpc_id      = var.config.vpc_id
 }
 
 resource "aws_vpc_security_group_ingress_rule" "main_from_alb" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["main_backend"].id
   referenced_security_group_id = var.config.alb_security_group_id
   ip_protocol                  = "tcp"
@@ -171,6 +266,7 @@ resource "aws_vpc_security_group_ingress_rule" "main_from_alb" {
   to_port                      = 8080
 }
 resource "aws_vpc_security_group_egress_rule" "alb_to_main" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = var.config.alb_security_group_id
   referenced_security_group_id = aws_security_group.task["main_backend"].id
   ip_protocol                  = "tcp"
@@ -178,6 +274,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_main" {
   to_port                      = 8080
 }
 resource "aws_vpc_security_group_ingress_rule" "payment_from_main" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["payment_server"].id
   referenced_security_group_id = aws_security_group.task["main_backend"].id
   ip_protocol                  = "tcp"
@@ -185,6 +282,7 @@ resource "aws_vpc_security_group_ingress_rule" "payment_from_main" {
   to_port                      = 8090
 }
 resource "aws_vpc_security_group_egress_rule" "main_to_payment" {
+  count                        = local.bridge ? 0 : 1
   security_group_id            = aws_security_group.task["main_backend"].id
   referenced_security_group_id = aws_security_group.task["payment_server"].id
   ip_protocol                  = "tcp"
@@ -192,7 +290,7 @@ resource "aws_vpc_security_group_egress_rule" "main_to_payment" {
   to_port                      = 8090
 }
 resource "aws_vpc_security_group_egress_rule" "database" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = aws_security_group.task[each.key].id
   referenced_security_group_id = var.config.database_security_group_id
   ip_protocol                  = "tcp"
@@ -200,7 +298,7 @@ resource "aws_vpc_security_group_egress_rule" "database" {
   to_port                      = 3306
 }
 resource "aws_vpc_security_group_ingress_rule" "database" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = var.config.database_security_group_id
   referenced_security_group_id = aws_security_group.task[each.key].id
   ip_protocol                  = "tcp"
@@ -208,7 +306,7 @@ resource "aws_vpc_security_group_ingress_rule" "database" {
   to_port                      = 3306
 }
 resource "aws_vpc_security_group_egress_rule" "https" {
-  for_each          = local.names
+  for_each          = local.task_sg_names
   security_group_id = aws_security_group.task[each.key].id
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
@@ -216,10 +314,72 @@ resource "aws_vpc_security_group_egress_rule" "https" {
   to_port           = 443
 }
 resource "aws_vpc_security_group_ingress_rule" "secrets_endpoint" {
-  for_each                     = local.names
+  for_each                     = local.task_sg_names
   security_group_id            = var.config.secrets_endpoint_security_group_id
   referenced_security_group_id = aws_security_group.task[each.key].id
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
+}
+
+# ---- network_mode = "bridge" 전용: Task 대신 호스트 보안 그룹 기준 규칙 ----
+# ALB → 호스트의 동적 포트(Main의 호스트 포트).
+resource "aws_vpc_security_group_ingress_rule" "instance_from_alb" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.alb_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "ALB to ECS bridge tasks (dynamic host ports)"
+}
+resource "aws_vpc_security_group_egress_rule" "alb_to_instances" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.alb_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "ALB to ECS bridge tasks (dynamic host ports)"
+}
+# Service Connect: 호스트 간 Main → Payment 프록시 통신에 호스트끼리 동적 포트가 열려야 한다.
+resource "aws_vpc_security_group_ingress_rule" "instance_self" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "Service Connect between ECS bridge hosts"
+}
+# 호스트 보안 그룹의 송신 규칙. 운영 호스트 SG는 443 송신만 허용하므로 bridge Task가 쓰는 두 경로를 명시한다.
+# 호스트 → DB. Task 보안 그룹이 없으므로 Task의 DB 연결은 호스트 SG에서 나간다.
+resource "aws_vpc_security_group_egress_rule" "instance_to_database" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.database_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 3306
+  to_port                      = 3306
+  description                  = "ECS bridge hosts to MySQL"
+}
+# 호스트 → 호스트. Service Connect로 Main이 다른 호스트의 Payment 프록시 포트로 나간다.
+resource "aws_vpc_security_group_egress_rule" "instance_self" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.container_instance_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = local.dynamic_port_from
+  to_port                      = local.dynamic_port_to
+  description                  = "Service Connect between ECS bridge hosts (egress)"
+}
+# DB는 Task 보안 그룹 대신 호스트 보안 그룹을 허용한다(호스트의 모든 Task가 같은 접근 범위).
+resource "aws_vpc_security_group_ingress_rule" "database_from_instances" {
+  count                        = local.bridge_rules ? 1 : 0
+  security_group_id            = var.config.database_security_group_id
+  referenced_security_group_id = var.config.container_instance_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 3306
+  to_port                      = 3306
+  description                  = "ECS bridge hosts to MySQL"
 }

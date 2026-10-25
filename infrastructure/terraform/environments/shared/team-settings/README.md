@@ -29,6 +29,22 @@ MFA로검증된세션에서본인팀비운영설정읽기/쓰기허용,타팀·�
 
 팀별저장소를현재배포로더/ECS정의에연동하기전까지기존런타임값유지. 이기반생성만으로팀입력값자동주입완료는아님. 현재설정권한은운영값을조회하거나배포를실행하는권한이아님.
 
+## 운영 로그 읽기 전용 접근 (opt-in)
+
+`production_log_read_enabled=true`일 때만 공통 관리형 정책 `SeonjalalTeamProductionLogRead`를 두 팀 그룹에 연결. 기본값 false는 리소스 0개.
+
+- 허용: 운영 ECS 로그 그룹 4개(`/ecs/seonjalal-v2-production-{main-backend,payment-server,ai}`, 휴면 구 Backend `/ecs/seonjalal-v2-production/backend`)의 이벤트 조회·Logs Insights 쿼리. MFA·서울 리전 조건 필수
+- 제외: 서버 셸(SSM), 로그 쓰기·삭제·보존기간·구독 변경(명시 Deny), Secret 값. 운영 EC2 접근 권한은 그대로 없음
+- `Resource: "*"`는 리소스 지정이 불가능한 `DescribeLogGroups`·`GetQueryResults`·`StopQuery`·`DescribeQueries` 4개로 한정
+- 로그에 토큰·개인정보가 섞일 수 있으므로 원문 전체 복사·스크린샷 공유 금지. 보존 기간은 30일
+- 로그 그룹 이름은 `be_split_runtime`·`ai_ecs_runtime` 모듈의 이름 규칙과 일치해야 함. 모듈 이름 규칙이 바뀌면 `production-log-read.tf`도 함께 갱신
+
+```bash
+# Mac Cloud저장소: 변경 계획 저장. AWS 실제 변경 없음. 정책 1개 + 그룹 연결 2개 생성 예상
+terraform -chdir=infrastructure/terraform/environments/shared/team-settings plan \
+  -var production_log_read_enabled=true -out=production-log-read.tfplan
+```
+
 ## 로컬 검사
 
 ```bash
