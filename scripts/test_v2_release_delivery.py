@@ -258,6 +258,43 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(cd.DeliveryError):
             cd.stable_at(api, {"cluster": "cluster", "service": "service"}, "new")
 
+    def _stable_api(self, states):
+        """describe-services가 호출될 때마다 states의 다음 (taskDefinition, rolloutState)를 반환하는 가짜 API."""
+        calls = {"n": 0, "waits": 0}
+        def api(service, operation, *args):
+            if operation == "wait":
+                calls["waits"] += 1
+                return {}
+            self.assertEqual(operation, "describe-services")
+            task_definition, rollout = states[min(calls["n"], len(states) - 1)]
+            calls["n"] += 1
+            value = healthy(task_definition)
+            value["deployments"] = [{"rolloutState": rollout}]
+            return {"services": [value]}
+        return api, calls
+
+    def test_stable_at_waits_for_rollout_to_complete(self):
+        api, calls = self._stable_api([("new", "IN_PROGRESS"), ("new", "IN_PROGRESS"), ("new", "COMPLETED")])
+        slept = []
+        cd.stable_at(api, {"cluster": "c", "service": "s"}, "new", sleep=slept.append)
+        self.assertEqual(calls["n"], 3)
+        self.assertEqual(len(slept), 2)
+
+    def test_stable_at_gives_up_if_rollout_never_completes(self):
+        api, calls = self._stable_api([("new", "IN_PROGRESS")])
+        with self.assertRaises(cd.DeliveryError):
+            cd.stable_at(api, {"cluster": "c", "service": "s"}, "new", attempts=3, sleep=lambda _: None)
+        self.assertEqual(calls["n"], 3)
+
+    def test_stable_at_fails_immediately_on_other_revision_or_failed_rollout(self):
+        for states in ([("old", "IN_PROGRESS")], [("new", "FAILED")]):
+            api, calls = self._stable_api(states)
+            slept = []
+            with self.assertRaises(cd.DeliveryError):
+                cd.stable_at(api, {"cluster": "c", "service": "s"}, "new", sleep=slept.append)
+            self.assertEqual(calls["n"], 1)
+            self.assertEqual(slept, [])
+
     def test_dry_run_blocks_mutating_aws_call_before_subprocess(self):
         with patch.object(cd.subprocess, "run") as run:
             for operation in cd.MUTATIONS:
