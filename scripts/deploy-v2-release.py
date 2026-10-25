@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 ACCOUNT = "721744297924"
 REGION = "ap-northeast-2"
@@ -188,12 +189,21 @@ def prepare_backend(api, env, release, layout, compatibility, slot="auto"):
     return plans
 
 
-def stable_at(api, plan, expected):
+def stable_at(api, plan, expected, attempts=30, interval=10, sleep=time.sleep):
     # Circuit Breaker가 이전 버전으로 복귀해도 waiter는 성공할 수 있어 정확한 revision을 재검사.
     api("ecs", "wait", "services-stable", "--cluster", plan["cluster"], "--services", plan["service"])
-    current = service(api, plan["cluster"], plan["service"])
-    baseline(current)
-    require(current["taskDefinition"] == expected, "안정화됐으나 요청 Revision 아님(rollback 또는 동시 배포)")
+    for attempt in range(attempts):
+        current = service(api, plan["cluster"], plan["service"])
+        # 요청한 revision이 아니면(자동 rollback·동시 배포) 기다리지 않고 즉시 실패시킨다. 성공으로 오인 금지.
+        require(current["taskDefinition"] == expected, "안정화됐으나 요청 Revision 아님(rollback 또는 동시 배포)")
+        # waiter는 Task 수가 안정되면 바로 끝나지만 rolloutState가 COMPLETED로 바뀌기까지 수 초 더 걸린다.
+        # 이 짧은 지연에서만 재확인하고, FAILED 등 다른 상태는 즉시 실패시킨다.
+        deployments = current.get("deployments", [])
+        transient = len(deployments) == 1 and deployments[0].get("rolloutState") == "IN_PROGRESS"
+        if not transient or attempt == attempts - 1:
+            baseline(current)
+            return
+        sleep(interval)
 
 
 def apply_backend(api, plans, attempted):
