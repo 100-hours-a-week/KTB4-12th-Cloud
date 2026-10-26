@@ -66,10 +66,11 @@ resource "aws_instance" "monitor" {
   credit_specification {
     cpu_credits = "standard"
   }
+  # Grafana는 도커 컨테이너라 IMDS 응답이 브리지를 한 번 더 거친다. 홉 1이면 컨테이너가 서버 역할의 자격 증명을 받지 못한다.
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_put_response_hop_limit = 2
   }
   root_block_device {
     encrypted             = true
