@@ -44,7 +44,7 @@ class DashboardQueryTests(unittest.TestCase):
 
     def test_dashboard_has_a_stable_uid_and_a_bumped_version(self):
         self.assertEqual(DASHBOARD["uid"], "seonjalal-cw-loadtest")
-        self.assertGreaterEqual(DASHBOARD["version"], 3)
+        self.assertGreaterEqual(DASHBOARD["version"], 4)
 
     def test_legends_use_the_cloudwatch_dynamic_label_syntax(self):
         for title, target in TARGETS:
@@ -62,6 +62,20 @@ class DashboardQueryTests(unittest.TestCase):
             self.assertFalse(re.search(pattern, "seonjalal-v2-develop-ecs-application"), name)
             self.assertTrue(re.search(pattern, "seonjalal-v2-staging"), name)
             self.assertTrue(re.search(pattern, "seonjalal-v2-production-cluster"), name)
+
+    def test_filter_regexes_have_no_capture_group(self):
+        """Grafana는 정규식에 캡처 그룹이 있으면 그 그룹을 선택 항목의 값으로 쓴다.
+
+        '이 단어가 없는 것만 통과'하는 규칙은 그룹이 아무것도 잡지 못해 값이 undefined가 된다.
+        """
+        for item in DASHBOARD["templating"]["list"]:
+            if item.get("regex"):
+                pattern = item["regex"].strip("/")
+                self.assertEqual(re.compile(pattern).groups, 0, item["name"])
+                for name in ("seonjalal-v2-staging", "seonjalal-v2-production-cluster"):
+                    match = re.search(pattern, name)
+                    self.assertIsNotNone(match, name)
+                    self.assertEqual(match.group(0), name)
 
     def test_selectors_without_a_filter_are_the_ones_that_need_none(self):
         variables = {item["name"]: item for item in DASHBOARD["templating"]["list"]}

@@ -6,7 +6,7 @@
     "load-test"
   ],
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "editable": true,
   "timezone": "browser",
   "refresh": "1m",
@@ -1059,7 +1059,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": "/^(?!.*(rehearsal|develop)).*$/"
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
       },
       {
         "name": "service",
@@ -1093,7 +1093,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": "/^(?!.*(rehearsal|develop)).*$/"
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
       },
       {
         "name": "asg",
@@ -1110,7 +1110,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": "/^(?!.*(rehearsal|develop)).*$/"
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
       }
     ]
   }
