@@ -44,7 +44,29 @@ class DashboardQueryTests(unittest.TestCase):
 
     def test_dashboard_has_a_stable_uid_and_a_bumped_version(self):
         self.assertEqual(DASHBOARD["uid"], "seonjalal-cw-loadtest")
-        self.assertGreaterEqual(DASHBOARD["version"], 2)
+        self.assertGreaterEqual(DASHBOARD["version"], 3)
+
+    def test_legends_use_the_cloudwatch_dynamic_label_syntax(self):
+        for title, target in TARGETS:
+            self.assertNotIn("{{", target["label"], title)
+        labels = {title: target["label"] for title, target in TARGETS}
+        self.assertEqual(labels["ECS 서비스 CPU"], "${PROP('Dim.ServiceName')}")
+        self.assertEqual(labels["ECS 서비스 메모리"], "${PROP('Dim.ServiceName')}")
+        self.assertEqual(labels["호스트(ASG) CPU"], "${PROP('Dim.AutoScalingGroupName')}")
+
+    def test_stale_resources_are_filtered_out_of_the_selectors(self):
+        variables = {item["name"]: item for item in DASHBOARD["templating"]["list"]}
+        for name in ("cluster", "rds", "asg"):
+            pattern = variables[name]["regex"].strip("/")
+            self.assertFalse(re.search(pattern, "seonjalal-v2-migration-rehearsal"), name)
+            self.assertFalse(re.search(pattern, "seonjalal-v2-develop-ecs-application"), name)
+            self.assertTrue(re.search(pattern, "seonjalal-v2-staging"), name)
+            self.assertTrue(re.search(pattern, "seonjalal-v2-production-cluster"), name)
+
+    def test_selectors_without_a_filter_are_the_ones_that_need_none(self):
+        variables = {item["name"]: item for item in DASHBOARD["templating"]["list"]}
+        for name in ("alb", "service"):
+            self.assertFalse(variables[name].get("regex"), name)
 
 
 if __name__ == "__main__":
