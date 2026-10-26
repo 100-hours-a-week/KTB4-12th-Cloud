@@ -228,7 +228,8 @@ def swap_container(host, inspect, image, private_ip, stamp, out=print):
         host.docker("stop", CONTAINER)
         host.docker("rename", CONTAINER, SAVED)
         renamed = True
-        created = host.docker("run", *run_args(image, private_ip, mounts), check=False)
+        # run_args가 이미 "run"으로 시작한다. 한 번 더 붙이면 Docker가 두 번째 "run"을 이미지 이름으로 해석한다.
+        created = host.docker(*run_args(image, private_ip, mounts), check=False)
         reasons = verify_new_container(host, inspect, private_ip, created)
     except SystemExit as error:
         reasons = [str(error)]

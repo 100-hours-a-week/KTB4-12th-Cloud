@@ -28,6 +28,34 @@ OLD_INSPECT = {
 }
 
 
+FLAG_OPTIONS = {"--detach"}
+VALUE_OPTIONS = {"--restart", "--network", "--cap-drop", "--security-opt", "--pids-limit", "--log-driver", "--log-opt",
+                 "--name", "--user", "--memory", "--memory-swap", "--cpus", "--publish", "-e", "-v"}
+
+
+def parse_docker_run(args):
+    """실제 `docker run`처럼 옵션, 값, 이미지, 명령을 나눈다. 모르는 옵션이면 AssertionError.
+
+    `docker run` 뒤에서 옵션이 아닌 첫 단어가 이미지이고 그 뒤는 컨테이너 안에서 실행할 명령이다.
+    """
+    assert args[0] == "run"
+    options, index = [], 1
+    while index < len(args):
+        token = args[index]
+        if token in FLAG_OPTIONS:
+            options.append((token, None))
+            index += 1
+        elif token in VALUE_OPTIONS:
+            options.append((token, args[index + 1]))
+            index += 2
+        elif token.startswith("-"):
+            raise AssertionError("알 수 없는 docker run 옵션: " + token)
+        else:
+            break
+    image = args[index] if index < len(args) else None
+    return options, image, list(args[index + 1:])
+
+
 class FakeHost:
     def __init__(self, identity=None, memory=2000, image=DIGEST, fail_run=False, unhealthy_after_swap=False,
                  drop_mounts=False, old_unhealthy=False, misconfigure=False, log_text=""):
@@ -98,16 +126,24 @@ class FakeHost:
             return 0, ""
         if verb == "run":
             self.run_args = list(args)
+            options, image, command = parse_docker_run(args)
+            self.run_image, self.run_command = image, command
+            if image is None or "@sha256:" not in image:
+                # 실제 Docker와 같은 실패: 옵션이 아닌 첫 단어를 이미지로 보고 찾지 못한다.
+                self.last_stderr = f"Unable to find image '{image}:latest' locally"
+                if check:
+                    raise SystemExit("STOP: Docker 단계 실패")
+                return 1, ""
             if self.fail_run:
                 self.last_stderr = "docker: Error response from daemon: port is already allocated\nsecond line"
                 if check:
                     raise SystemExit("STOP: Docker 단계 실패")
                 return 1, ""
-            env = [args[i + 1] for i, v in enumerate(args) if v == "-e"]
+            env = [value for option, value in options if option == "-e"]
             if self.misconfigure:
                 env = [item for item in env if not item.startswith("GF_USERS_ALLOW_SIGN_UP")]
-            publish = [args[i + 1] for i, v in enumerate(args) if v == "--publish"]
-            mounts = [args[i + 1] for i, v in enumerate(args) if v == "-v"]
+            publish = [value for option, value in options if option == "--publish"]
+            mounts = [value for option, value in options if option == "-v"]
             if self.drop_mounts:
                 mounts = mounts[1:]
             bindings = [{"HostIp": item.rsplit(":3000:3000", 1)[0], "HostPort": "3000"} for item in publish]
@@ -303,6 +339,36 @@ class FailureEvidenceTests(unittest.TestCase):
         self.assertIn(remote.CONTAINER, host.running)
         self.assertEqual(host.containers[remote.CONTAINER]["HostConfig"]["Memory"], 384 * 1024 ** 2)
         self.assertNotIn(remote.SAVED, host.containers)
+
+
+class DockerRunShapeTests(unittest.TestCase):
+    def test_run_reaches_docker_with_the_verb_once_and_the_pinned_image(self):
+        host = FakeHost()
+        execute(host)
+        self.assertEqual(host.run_args.count("run"), 1)
+        self.assertEqual(host.run_args[0], "run")
+        self.assertEqual(host.run_image, DIGEST)
+        self.assertEqual(host.run_command, [])
+
+    def test_the_fake_rejects_a_duplicated_run_verb_like_real_docker(self):
+        host = FakeHost()
+        code, _ = host.docker("run", "run", "--detach", "--name", remote.CONTAINER, DIGEST, check=False)
+        self.assertEqual(code, 1)
+        self.assertEqual(host.last_stderr, "Unable to find image 'run:latest' locally")
+        self.assertEqual(host.run_command, ["--detach", "--name", remote.CONTAINER, DIGEST])
+
+    def test_the_fake_rejects_unknown_options(self):
+        host = FakeHost()
+        with self.assertRaises(AssertionError):
+            host.docker("run", "--surprise", DIGEST, check=False)
+
+    def test_every_option_value_pair_is_understood(self):
+        args = remote.run_args(DIGEST, "10.20.10.150", ["vol:/data", "/a:/b:ro"])
+        options, image, command = parse_docker_run(args)
+        self.assertEqual((image, command), (DIGEST, []))
+        names = [option for option, _ in options]
+        for required in ("--detach", "--name", "--memory", "--memory-swap", "--publish", "-e", "-v"):
+            self.assertIn(required, names)
 
 
 class PreflightTests(unittest.TestCase):
