@@ -1,9 +1,11 @@
-"""모니터링 서버에서 실행되는 팀 접속 전환 로직(Grafana 컨테이너 재생성 + Shared 폴더·대시보드).
+"""모니터링 서버에서 실행되는 팀 접속 전환 로직(Grafana 컨테이너 재생성).
 
 Mac의 prepare-grafana-team-access.py가 이 파일을 SSM 요청에 실어 보낸다. 서버 접근은 모두 Host 객체를 거치므로
-테스트에서 가짜 Host로 교체해 동작(교체·롤백·재실행)을 검증한다. 비밀번호는 출력하지 않는다.
+테스트에서 가짜 Host로 교체해 동작(교체·롤백·재실행)을 검증한다.
+
+관리자 API에는 로그인하지 않는다(관리자 계정·비밀번호는 UI에서 바뀔 수 있고 서버에 저장하지 않는다).
+검증은 인증이 필요 없는 /api/health와 컨테이너 마운트 비교로 한다. Shared 폴더와 권한은 관리자가 UI에서 설정한다.
 """
-import base64
 import datetime
 import fcntl
 import json
@@ -17,15 +19,11 @@ import urllib.request
 CONTAINER = "seonjalal-monitor-grafana"
 SAVED = CONTAINER + "-before-team-access"
 ROOT = pathlib.Path("/opt/seonjalal-observability")
-PASSWORD_FILE = ROOT / "secrets" / "grafana-admin-password"
 EXPECTED = {"accountId": "721744297924", "region": "ap-northeast-2",
             "instanceId": "i-0c6a75f630436591c", "privateIp": "10.20.10.150"}
 MEMORY = "1g"
 MEMORY_BYTES = 1024 ** 3
 MIN_AVAILABLE_MIB = 700
-FOLDER_UID = "shared"
-FOLDER_TITLE = "Shared"
-FOLDER_ITEMS = [{"role": "Viewer", "permission": 1}, {"role": "Editor", "permission": 1}]
 ENV = [
     "GF_SECURITY_ADMIN_USER=admin",
     "GF_SECURITY_ADMIN_PASSWORD__FILE=/run/secrets/grafana-admin-password",
@@ -91,19 +89,14 @@ class Host:
             require(result.returncode == 0, "Docker 단계 실패: " + args[0] + " " + (result.stderr.strip().splitlines() or [""])[0][:160])
         return result.returncode, result.stdout.strip()
 
-    def api(self, method, path, body=None):
-        credential = base64.b64encode(("admin:" + self.read(PASSWORD_FILE).strip()).encode()).decode()
-        headers = {"Authorization": "Basic " + credential, "Content-Type": "application/json"}
-        data = json.dumps(body).encode() if body is not None else None
-        request = urllib.request.Request("http://127.0.0.1:3000" + path, data=data, method=method, headers=headers)
+    def healthy(self):
+        """인증이 필요 없는 /api/health만 확인한다(DB 열림 포함)."""
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            with opener.open(request, timeout=15) as response:
-                return response.status, json.loads(response.read() or "null")
-        except urllib.error.HTTPError as error:
-            return error.code, None
-        except (OSError, ValueError):
-            return 0, None
+            with opener.open("http://127.0.0.1:3000/api/health", timeout=5) as response:
+                return response.status == 200 and json.loads(response.read() or "null").get("database") == "ok"
+        except (OSError, ValueError, AttributeError, urllib.error.URLError):
+            return False
 
     def sleep(self, seconds):
         time.sleep(seconds)
@@ -131,6 +124,10 @@ def mounts_of(inspect):
     return result
 
 
+def mount_pairs(inspect):
+    return {(m["Name"] if m["Type"] == "volume" else m["Source"], m["Destination"]) for m in inspect["Mounts"]}
+
+
 def is_configured(inspect, private_ip):
     env = set(inspect["Config"]["Env"])
     bindings = inspect["HostConfig"].get("PortBindings", {}).get("3000/tcp") or []
@@ -141,23 +138,20 @@ def is_configured(inspect, private_ip):
 
 def wait_healthy(host, attempts=30):
     for _ in range(attempts):
-        status, body = host.api("GET", "/api/health")
-        if status == 200 and body and body.get("database") == "ok":
+        if host.healthy():
             return True
         host.sleep(2)
     return False
 
 
-def datasource_names(host):
-    status, body = host.api("GET", "/api/datasources")
-    require(status == 200 and isinstance(body, list), "데이터 소스 목록을 읽지 못했다")
-    return {item["name"] for item in body}
+def inspect_of(host, name):
+    code, raw = host.docker("inspect", name, check=False)
+    return json.loads(raw)[0] if code == 0 else None
 
 
 def swap_container(host, inspect, image, private_ip, stamp):
     backup = ROOT / f"before-team-access-{stamp}" / "grafana-inspect.json"
     host.write_private(backup, json.dumps(inspect, indent=2))
-    before = datasource_names(host)
     mounts = mounts_of(inspect)
     renamed = False
     ok = False
@@ -166,7 +160,9 @@ def swap_container(host, inspect, image, private_ip, stamp):
         host.docker("rename", CONTAINER, SAVED)
         renamed = True
         created = host.docker("run", *run_args(image, private_ip, mounts), check=False)
-        ok = created[0] == 0 and wait_healthy(host) and before <= datasource_names(host)
+        new = inspect_of(host, CONTAINER) if created[0] == 0 else None
+        ok = (new is not None and wait_healthy(host)
+              and mount_pairs(inspect) <= mount_pairs(new) and is_configured(new, private_ip))
     finally:
         if not ok:
             if renamed:
@@ -179,26 +175,7 @@ def swap_container(host, inspect, image, private_ip, stamp):
     return str(backup)
 
 
-def ensure_shared(host, dashboard):
-    status, _ = host.api("GET", f"/api/folders/{FOLDER_UID}")
-    if status == 404:
-        status, _ = host.api("POST", "/api/folders", {"uid": FOLDER_UID, "title": FOLDER_TITLE})
-        require(status in (200, 412), "Shared 폴더 생성 실패(HTTP %s)" % status)
-    status, _ = host.api("POST", f"/api/folders/{FOLDER_UID}/permissions", {"items": FOLDER_ITEMS})
-    require(status == 200, "Shared 폴더 권한 설정 실패(HTTP %s)" % status)
-    status, permissions = host.api("GET", f"/api/folders/{FOLDER_UID}/permissions")
-    require(status == 200 and isinstance(permissions, list), "Shared 폴더 권한을 읽지 못했다")
-    editor = [p for p in permissions if p.get("role") == "Editor"]
-    require(editor and all(p.get("permission") == 1 for p in editor), "Editor 권한이 보기 전용이 아니다")
-    body = {"dashboard": {**dashboard, "id": None}, "folderUid": FOLDER_UID, "overwrite": True,
-            "message": "team access setup"}
-    status, _ = host.api("POST", "/api/dashboards/db", body)
-    require(status == 200, "대시보드 import 실패(HTTP %s)" % status)
-    status, saved = host.api("GET", "/api/dashboards/uid/" + dashboard["uid"])
-    require(status == 200 and saved["meta"].get("folderUid") == FOLDER_UID, "대시보드가 Shared 폴더에 없다")
-
-
-def run(host, dashboard, now=None, out=print):
+def run(host, now=None, out=print):
     identity = host.identity()
     require(identity == EXPECTED, "관측 노드 대상 불일치")
     host.lock()
@@ -206,24 +183,21 @@ def run(host, dashboard, now=None, out=print):
     require(available >= MIN_AVAILABLE_MIB, f"여유 메모리 {available}MiB, {MIN_AVAILABLE_MIB}MiB 필요")
     image = json.loads(host.read(ROOT / "image-lock.json"))["grafana"]["digest"]
     require("@sha256:" in image and ":latest" not in image, "고정된 Grafana 이미지 digest가 없다")
-    code, raw = host.docker("inspect", CONTAINER, check=False)
-    require(code == 0, "기존 Grafana 컨테이너가 없다")
-    inspect = json.loads(raw)[0]
+    inspect = inspect_of(host, CONTAINER)
+    require(inspect is not None, "기존 Grafana 컨테이너가 없다")
     require(inspect["State"]["Running"], "기존 Grafana 컨테이너가 실행 중이 아니다")
     require(wait_healthy(host, attempts=3), "기존 Grafana가 정상이 아니다. 전환 전에 상태 확인 필요")
     stamp = now or datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     if is_configured(inspect, identity["privateIp"]):
-        out("CONTAINER_ALREADY_CONFIGURED_SKIP_SWAP")
-    else:
-        backup = swap_container(host, inspect, image, identity["privateIp"], stamp)
-        out("CONTAINER_SWAPPED backup=" + backup + " previous_container=" + SAVED + " (stopped, kept for rollback)")
-    ensure_shared(host, dashboard)
-    out("SHARED_FOLDER_EDITOR_READ_ONLY_DASHBOARD_IMPORTED")
+        out("CONTAINER_ALREADY_CONFIGURED_NOTHING_CHANGED")
+        return
+    backup = swap_container(host, inspect, image, identity["privateIp"], stamp)
+    out("CONTAINER_SWAPPED backup=" + backup + " previous_container=" + SAVED + " (stopped, kept for rollback)")
     out("GRAFANA_URL=http://" + identity["privateIp"] + ":3000 SIGN_UP=on DEFAULT_ROLE=Editor")
-    out("NO_PASSWORD_OUTPUT_NO_APP_DB_OR_SECURITY_GROUP_CHANGE")
+    out("NEXT=admin sets Shared folder permissions in the UI")
+    out("NO_ADMIN_LOGIN_NO_PASSWORD_USE_NO_APP_DB_OR_SECURITY_GROUP_CHANGE")
 
 
 def main():
-    dashboard = json.loads(base64.b64decode(DASHBOARD_B64))
     require(os.geteuid() == 0, "root 필요")
-    run(Host(), dashboard)
+    run(Host())

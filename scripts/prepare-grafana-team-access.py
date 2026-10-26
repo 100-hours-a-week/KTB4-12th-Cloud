@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mac: 모니터링 서버 Grafana 팀 접속 전환용 SSM 요청 생성. AWS 호출·원격 실행 없음.
 
-원격에서 하는 일은 scripts/grafana_team_access_remote.py 참고(컨테이너 재생성, Shared 폴더, 대시보드).
+원격에서 하는 일은 scripts/grafana_team_access_remote.py 참고(컨테이너 재생성만, 관리자 로그인 없음).
 """
 import base64
 import json
@@ -12,13 +12,10 @@ import tempfile
 INSTANCE = "i-0c6a75f630436591c"
 HERE = Path(__file__).resolve().parent
 REMOTE_SOURCE = HERE / "grafana_team_access_remote.py"
-DASHBOARD = HERE.parent / "operations" / "grafana" / "dashboards" / "cloudwatch-load-test.json"
 
 
 def build_request():
-    dashboard = json.loads(DASHBOARD.read_text(encoding="utf-8"))
-    encoded_dashboard = base64.b64encode(json.dumps(dashboard).encode()).decode()
-    remote = f"DASHBOARD_B64 = {encoded_dashboard!r}\n" + REMOTE_SOURCE.read_text(encoding="utf-8") + "\nmain()\n"
+    remote = REMOTE_SOURCE.read_text(encoding="utf-8") + "\nmain()\n"
     compile(remote, "<remote-static-validation>", "exec")
     encoded = base64.b64encode(remote.encode()).decode()
     command = "python3 - <<'PY'\nimport base64\nexec(compile(base64.b64decode(" + repr(encoded) + "), '<grafana-team-access>', 'exec'))\nPY"
