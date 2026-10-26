@@ -211,7 +211,8 @@ class VerifyUserIdTests(unittest.TestCase):
         with mock_server(MOCK_ID_BASE="2000") as base:
             result = self.run_verify(base)
             self.assertEqual(result.returncode, 0, result.stdout[-600:] + result.stderr[-600:])
-            self.assertRegex(result.stderr + result.stdout, r'V2_USER_ID_OFFSET\W+2000')
+            self.assertRegex(result.stderr + result.stdout, r'V2_USER_ID_OFFSET\W+2500')
+            self.assertRegex(result.stderr + result.stdout, r'V2_USER_COUNT\W+9500')
             self.assertEqual(stats(base)["logins"], 3)
 
     def test_non_contiguous_ids_fail(self):
@@ -238,6 +239,114 @@ class VerifyUserIdTests(unittest.TestCase):
         with mock_server() as base:
             result = self.run_verify(base, BASE_URL="https://www.seonjalal.com")
             self.assertNotEqual(result.returncode, 0)
+
+
+@unittest.skipUnless(TOOLS, "k6와 node가 필요하다")
+class MixedReadWriteTests(unittest.TestCase):
+    SCRIPT = "workloads/v2-mixed-rw.js"
+    EXPECTED_SMOKE_HITS = {
+        "/products/:id": 1, "/users/me": 1, "/friends": 3, "/gifts/received": 2, "/credits/balance": 1,
+        "/notifications": 1, "/notifications/unread-count": 1, "/preferences": 1,
+        "/preferences/dislike-categories": 1, "/friend-requests/received": 1, "/friend-requests/sent": 1,
+        "/payments/:id": 1, "PUT /preferences": 1, "PUT /preferences/dislike-categories": 1,
+        "POST /gifts/:id/review": 1, "DELETE /gifts/:id/review": 1, "POST /friend-requests": 1,
+        "POST /friend-requests/:id/accept": 1, "POST /payments": 2, "POST /payments/:id/cancellations": 1,
+        "POST /gifts/received/:id/accept": 1,
+    }
+
+    def test_smoke_runs_every_operation_with_the_right_user(self):
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base)
+            self.assertEqual(result.returncode, 0, result.stdout[-1200:] + result.stderr[-800:])
+            seen = stats(base)
+            for key, count in self.EXPECTED_SMOKE_HITS.items():
+                self.assertEqual(seen["hits"].get(key), count, key)
+            self.assertEqual(seen["rejected"], {"gate": 0, "auth": 0})
+
+    def test_acceptance_needs_the_recipients_token(self):
+        # 모의 서버는 수락을 받는 사람의 토큰이 아니면 404로 거절한다. 스모크가 통과하면 시나리오가 받는 사람 토큰을 쓴 것이다.
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base)
+            self.assertEqual(result.returncode, 0)
+            seen = stats(base)
+            self.assertEqual(seen["hits"]["POST /gifts/received/:id/accept"], 1)
+            self.assertEqual(seen["hits"]["POST /friend-requests/:id/accept"], 1)
+
+    def test_read_write_ratio_is_about_80_20(self):
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base, PROFILE="mockcheck", V2_MOCKCHECK_ITERATIONS="2000")
+            self.assertEqual(result.returncode, 0, result.stdout[-1200:] + result.stderr[-800:])
+            seen = stats(base)
+            share = seen["writes"] / (seen["reads"] + seen["writes"])
+            self.assertGreater(share, 0.17, share)
+            self.assertLess(share, 0.23, share)
+            self.assertGreater(seen["hits"]["POST /payments"], 70)
+            self.assertLess(seen["hits"]["POST /payments"], 150)
+
+    def test_scenarios_do_not_fail_with_normal_business_errors_outside_smoke(self):
+        # 가격이 어긋나 결제가 409로 거절돼도 정상 업무 오류라 본 시험은 통과하지만, 스모크는 계약 오류로 잡아야 한다.
+        with mock_server(MOCK_PRICE_SKEW="1") as base:
+            smoke = run_k6(self.SCRIPT, base)
+            self.assertEqual(smoke.returncode, 99, smoke.stdout[-800:] + smoke.stderr[-800:])
+        with mock_server(MOCK_PRICE_SKEW="1") as base:
+            mix = run_k6(self.SCRIPT, base, PROFILE="mockcheck", V2_MOCKCHECK_ITERATIONS="600")
+            self.assertEqual(mix.returncode, 0, mix.stdout[-800:] + mix.stderr[-800:])
+
+    def test_server_error_on_a_write_fails_the_smoke(self):
+        with mock_server(MOCK_FAIL_PATH="payments") as base:
+            result = run_k6(self.SCRIPT, base)
+            self.assertEqual(result.returncode, 99, result.stdout[-800:] + result.stderr[-800:])
+
+    def test_wrong_gate_token_fails_in_setup(self):
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base, STAGING_GATE_TOKEN="gate-wrong")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Product sampling failed", result.stdout + result.stderr)
+            self.assertEqual(stats(base)["hits"], {})
+
+    def test_no_secret_is_printed(self):
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base)
+            for leaked in (SECRET, GATE, "eyJ"):
+                self.assertNotIn(leaked, result.stdout + result.stderr)
+
+    def test_mockcheck_profile_is_blocked_outside_the_mock(self):
+        env = k6_env("https://v2-staging.seonjalal.com", PROFILE="mockcheck")
+        flags = [part for key, value in env.items()
+                 if key.startswith(("STAGING_", "V2_", "ALLOW_", "PROFILE", "BASE_URL")) for part in ("-e", f"{key}={value}")]
+        result = subprocess.run(["k6", "inspect", *flags, str(ROOT / self.SCRIPT)], cwd=ROOT, env=env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mockcheck runs only against the local mock", result.stdout + result.stderr)
+
+    def inspect(self, profile):
+        env = k6_env("http://127.0.0.1:1", PROFILE=profile)
+        flags = [part for key, value in env.items()
+                 if key.startswith(("STAGING_", "V2_", "ALLOW_", "PROFILE", "BASE_URL")) for part in ("-e", f"{key}={value}")]
+        result = subprocess.run(["k6", "inspect", *flags, str(ROOT / self.SCRIPT)], cwd=ROOT, env=env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr[-800:])
+        return json.loads(result.stdout)
+
+    def test_thresholds_judge_reads_and_writes_separately(self):
+        thresholds = self.inspect("baseline")["thresholds"]
+        self.assertEqual(thresholds["http_req_duration{workload:v2_rw,rw:read}"], ["p(95)<500", "p(99)<1000"])
+        self.assertEqual(thresholds["http_req_duration{workload:v2_rw,rw:write}"], ["p(95)<800", "p(99)<1500"])
+        self.assertNotIn("http_req_duration{workload:v2_rw}", thresholds)
+        aborting = [t for t in thresholds["http_req_failed{workload:v2_rw}"] if isinstance(t, dict) and t.get("abortOnFail")]
+        self.assertTrue(aborting)
+
+    def test_capacity_never_exceeds_30_iterations_per_second(self):
+        stages = self.inspect("capacity")["scenarios"]["v2_rw"]["stages"]
+        self.assertEqual(max(stage["target"] for stage in stages), 30)
+
+    def test_profiles_above_30_need_approval(self):
+        with mock_server() as base:
+            for profile in ("spike", "breakpoint"):
+                result = run_k6(self.SCRIPT, base, PROFILE=profile)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("exceeds 30 RPS", result.stdout + result.stderr)
+            self.assertEqual(stats(base)["hits"], {})
 
 
 if __name__ == "__main__":
