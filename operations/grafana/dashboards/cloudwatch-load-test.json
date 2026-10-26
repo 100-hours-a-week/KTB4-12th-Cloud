@@ -6,7 +6,7 @@
     "load-test"
   ],
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "editable": true,
   "timezone": "browser",
   "refresh": "1m",
@@ -398,7 +398,7 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{ServiceName}}",
+          "label": "${PROP('Dim.ServiceName')}",
           "metricQueryType": 0,
           "metricEditorMode": 0,
           "sqlExpression": ""
@@ -463,7 +463,7 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{ServiceName}}",
+          "label": "${PROP('Dim.ServiceName')}",
           "metricQueryType": 0,
           "metricEditorMode": 0,
           "sqlExpression": ""
@@ -980,7 +980,7 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{AutoScalingGroupName}}",
+          "label": "${PROP('Dim.AutoScalingGroupName')}",
           "metricQueryType": 0,
           "metricEditorMode": 0,
           "sqlExpression": ""
@@ -1059,7 +1059,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": ""
+        "regex": "/^(?!.*(rehearsal|develop)).*$/"
       },
       {
         "name": "service",
@@ -1093,7 +1093,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": ""
+        "regex": "/^(?!.*(rehearsal|develop)).*$/"
       },
       {
         "name": "asg",
@@ -1110,7 +1110,7 @@
         "allValue": null,
         "current": {},
         "sort": 1,
-        "regex": ""
+        "regex": "/^(?!.*(rehearsal|develop)).*$/"
       }
     ]
   }
