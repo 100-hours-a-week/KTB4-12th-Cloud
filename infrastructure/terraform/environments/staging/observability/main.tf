@@ -55,7 +55,7 @@ resource "aws_vpc_security_group_egress_rule" "https" {
 
 resource "aws_instance" "monitor" {
   ami                         = data.aws_ssm_parameter.al2023.value
-  instance_type               = "t3.small"
+  instance_type               = var.monitor_instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.monitor.id]
