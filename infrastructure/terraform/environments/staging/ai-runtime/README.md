@@ -32,3 +32,12 @@
 - 로컬 fmt/validate·Mock·Bootstrap 단위 검사
 - 미검증: 실제 Task 등록·모델 다운로드 시간·동일 Task3앱 기동·DB/Secret/Export 연동·SSE·실패복귀·Provider 호출
 - 운영 출시 후 스테이징 실제 배포 시 새 저장 Plan 및 계정·서울·환경·비용 재확인 필요
+
+## DB 부트스트랩(일회성, 스테이징)
+
+- 운영 `production/ai-runtime`의 방식을 스테이징 DB(`ai_db_staging`)용으로 가져온 것. 빈 DB에 역할 5개와 pgvector를 만들고 DSN을 AI Secret 세 개에 기록한다. 앱은 시작하지 않는다.
+- 기본 꺼짐: `bootstrap_admin_secret_arn`(RDS 관리형 `ai_admin` Secret)과 4시간 이내 `bootstrap_expires_at`을 입력하면 Task Definition·IAM 역할·Secrets 엔드포인트 규칙만 등록한다. Terraform은 Task를 실행하지 않는다.
+- 운영과 다른 점: DSN 인증서 경로를 리터럴(`sslrootcert=/shared/tls/rds-ca.pem`)로 만들고 `ConfigParser` 라운드트립을 생성 시점에 검증한다. 운영은 `%2F` 인코딩 때문에 Alembic이 실패하고 출력에 비밀번호가 남은 사고(2026-10-22)가 있었다. 그 복구용 `rotate_migration`은 스테이징에 필요 없어 가져오지 않았다.
+- 재실행 방지: 이미 마이그레이션됐거나 테이블이 있으면 중단하고, 기존 Secret에 예상 밖 키가 있으면 덮어쓰지 않으며, 기존 역할의 권한이 예상과 다르면 중단한다. 실패 시 예외 종류만 출력한다.
+- 실행 순서(첫 켜기 리허설): `staging/ai-database` apply → AI 호스트 apply → 이 Root를 `desired_count=0`과 부트스트랩 입력으로 apply → 부트스트랩 Task 한 번 실행(AI 전용 용량 공급자, 작업 SG와 DB 클라이언트 SG) → `exitCode=0`과 성공 출력 확인 → 마이그레이션 Task 한 번 → 카탈로그 번들 적용 Task 한 번. 각 단계 사이에 CloudWatch 로그에 비밀이 없는지 점검한다.
+- 검증: `terraform test`(Mock)와 `tests/test_bootstrap.py`(가짜 DB·가짜 Secrets Manager). 실제 DB 실행은 리허설에서 확인한다.
