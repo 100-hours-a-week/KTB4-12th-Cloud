@@ -35,7 +35,8 @@ resource "aws_iam_instance_profile" "monitor" {
   role = aws_iam_role.monitor.name
 }
 
-# 인바운드 없음. Grafana는 이후 localhost 바인딩 및 SSM 포트 전달로 접근.
+# 기본은 인바운드 없음(SSM 포트 전달). 팀 접속용 Grafana 3000 규칙은 team-access.tf에 별도 정의.
+# description은 변경하면 SG가 교체되므로 그대로 둔다.
 resource "aws_security_group" "monitor" {
   name        = local.name
   description = "Private monitoring host; no inbound rules; SSM access only"
