@@ -13,9 +13,13 @@ class FakeAws:
     """AWS를 흉내 낸다. 변경 호출은 즉시 반영되고 호출 순서를 기록한다."""
 
     def __init__(self, account="721744297924", db=("available", "available"), hosts=0, suspended=True,
-                 services=None, protected=True, stopping_polls=None, ai_db=False, origin_rule=True):
+                 services=None, protected=True, stopping_polls=None, ai_db=False, origin_rule=True,
+                 ai_host=False, ai_service=False, ai_hosts_on=0):
         self.account = account
         self.origin_rule = origin_rule
+        self.ai_host = ai_host
+        self.ai_desired = ai_hosts_on
+        self.ai_instances = [f"ai-{n:04d}" for n in range(ai_hosts_on)]
         self.calls = []
         self.dbs = {"seonjalal-v2-staging": db[0]}
         if ai_db:
@@ -31,6 +35,8 @@ class FakeAws:
         for name in ("main-backend", "payment-server", "main-backend-b", "payment-server-b", "backend"):
             desired = base.get(name, 0)
             self.services[PREFIX + name] = {"desired": desired, "running": desired}
+        if ai_service:
+            self.services[power.AI_SERVICE] = {"desired": 1 if ai_hosts_on else 0, "running": 1 if ai_hosts_on else 0}
 
     def mutating(self):
         return [c for c in self.calls if c[1] in power.MUTATING]
@@ -58,6 +64,12 @@ class FakeAws:
             self.dbs[args[args.index("--db-instance-identifier") + 1]] = "stopping"
             return {}
         if (group, op) == ("autoscaling", "describe-auto-scaling-groups"):
+            if args[args.index("--auto-scaling-group-names") + 1] == power.AI_ASG:
+                if not self.ai_host:
+                    return {"AutoScalingGroups": []}
+                return {"AutoScalingGroups": [{
+                    "MinSize": 0, "DesiredCapacity": self.ai_desired, "MaxSize": 1, "SuspendedProcesses": [],
+                    "Instances": [{"InstanceId": i, "LifecycleState": "InService"} for i in self.ai_instances]}]}
             return {"AutoScalingGroups": [{
                 "MinSize": self.min, "DesiredCapacity": self.desired, "MaxSize": self.max,
                 "SuspendedProcesses": [{"ProcessName": p} for p in self.suspended],
@@ -72,6 +84,10 @@ class FakeAws:
         if (group, op) == ("autoscaling", "set-instance-protection"):
             self.protected = False
             return {}
+        if (group, op) == ("autoscaling", "update-auto-scaling-group") and args[args.index("--auto-scaling-group-name") + 1] == power.AI_ASG:
+            self.ai_desired = int(args[args.index("--desired-capacity") + 1])
+            self.ai_instances = [f"ai-{n:04d}" for n in range(self.ai_desired)]
+            return {}
         if (group, op) == ("autoscaling", "update-auto-scaling-group"):
             self.min = int(args[args.index("--min-size") + 1])
             self.desired = int(args[args.index("--desired-capacity") + 1])
@@ -81,7 +97,7 @@ class FakeAws:
                 self.instances = [f"i-{n:04d}" for n in range(self.desired)]
             return {}
         if (group, op) == ("ecs", "list-container-instances"):
-            return {"containerInstanceArns": [f"arn:{i}" for i in self.instances]}
+            return {"containerInstanceArns": [f"arn:{i}" for i in self.instances + self.ai_instances]}
         if (group, op) == ("ecs", "list-services"):
             return {"serviceArns": ["arn:" + n for n in self.services]}
         if (group, op) == ("ecs", "describe-services"):
@@ -234,6 +250,8 @@ class StagingPowerTest(unittest.TestCase):
         self.assertTrue(power.CLUSTER.startswith("seonjalal-v2-staging"))
         self.assertTrue(power.ASG.startswith("seonjalal-v2-staging"))
         self.assertTrue(all(n.startswith("seonjalal-v2-staging") for n in power.DATABASES))
+        self.assertTrue(power.AI_ASG.startswith("seonjalal-v2-staging"))
+        self.assertTrue(power.AI_SERVICE.startswith("seonjalal-v2-staging"))
 
     def test_dormant_process_list_matches_terraform(self):
         text = (pathlib.Path(__file__).resolve().parent.parent
@@ -242,6 +260,62 @@ class StagingPowerTest(unittest.TestCase):
             self.assertIn(f'"{process}"', text)
         listed = text.split("dormant_asg_suspended_processes = [")[1].split("]")[0]
         self.assertEqual(listed.count('"') // 2, len(power.DORMANT_PROCESSES))
+
+    def test_on_without_ai_resources_never_touches_the_ai_host(self):
+        api = FakeAws(db=("stopped", "stopped"))
+        output = run(["on", "--execute"], api)
+        self.assertEqual([c for c in api.mutating() if power.AI_ASG in c[2]], [])
+        self.assertNotIn("AI 호스트", output.split("-- ON 계획")[1])
+
+    def test_on_starts_the_ai_host_in_parallel_and_the_ai_service_after_hosts_are_ready(self):
+        api = FakeAws(db=("stopped", "stopped"), ai_host=True, ai_service=True)
+        run(["on", "--execute"], api)
+        self.assertEqual(api.ai_desired, 1)
+        self.assertEqual(api.services[power.AI_SERVICE]["desired"], 1)
+        mutations = [(c[1], power.AI_ASG in c[2], power.AI_SERVICE in c[2]) for c in api.mutating()]
+        ai_host_at = mutations.index(("update-auto-scaling-group", True, False))
+        be_host_at = next(i for i, m in enumerate(mutations) if m[0] == "update-auto-scaling-group" and not m[1])
+        first_service_at = next(i for i, m in enumerate(mutations) if m[0] == "update-service")
+        ai_service_at = mutations.index(("update-service", False, True))
+        self.assertLess(be_host_at, ai_host_at)
+        self.assertLess(ai_host_at, first_service_at)
+        self.assertLess(first_service_at, ai_service_at)
+
+    def test_on_with_ai_host_but_without_ai_service_only_starts_the_host(self):
+        api = FakeAws(db=("stopped", "stopped"), ai_host=True, ai_service=False)
+        output = run(["on", "--execute"], api)
+        self.assertEqual(api.ai_desired, 1)
+        self.assertIn("AI 서비스가 아직 없어", output)
+
+    def test_on_no_ai_skips_the_ai_host_and_service(self):
+        api = FakeAws(db=("stopped", "stopped"), ai_host=True, ai_service=True)
+        run(["on", "--execute", "--no-ai"], api)
+        self.assertEqual((api.ai_desired, api.services[power.AI_SERVICE]["desired"]), (0, 0))
+
+    def test_off_turns_the_ai_service_and_host_off_too(self):
+        api = FakeAws(hosts=2, suspended=False, services={"main-backend-b": 2}, ai_host=True, ai_service=True, ai_hosts_on=1)
+        run(["off", "--execute"], api)
+        self.assertEqual(api.services[power.AI_SERVICE]["desired"], 0)
+        self.assertEqual((api.ai_desired, api.ai_instances), (0, []))
+        names = [(c[1], power.AI_ASG in c[2]) for c in api.mutating()]
+        self.assertLess(names.index(("update-service", False)), names.index(("update-auto-scaling-group", True)))
+        self.assertLess(names.index(("update-auto-scaling-group", True)), names.index(("stop-db-instance", False)))
+
+    def test_off_ignores_the_ai_host_when_it_does_not_exist_or_is_already_off(self):
+        for api in (FakeAws(hosts=0, suspended=True), FakeAws(hosts=0, suspended=True, ai_host=True, ai_service=True)):
+            run(["off", "--execute"], api)
+            self.assertEqual([c for c in api.mutating() if power.AI_ASG in c[2]], [])
+
+    def test_status_warns_when_only_the_ai_host_is_running(self):
+        api = FakeAws(hosts=0, suspended=True, ai_host=True, ai_service=True, ai_hosts_on=1)
+        api.services[power.AI_SERVICE] = {"desired": 0, "running": 0}
+        self.assertIn("AI 호스트만 켜져 있다", run(["status"], api))
+
+    def test_plan_lists_ai_steps_only_when_the_ai_host_exists(self):
+        with_ai = run(["on"], FakeAws(db=("stopped", "stopped"), ai_host=True, ai_service=True))
+        without_ai = run(["on"], FakeAws(db=("stopped", "stopped")))
+        self.assertIn("AI 호스트 ASG: desired 1", with_ai)
+        self.assertNotIn("AI 호스트 ASG: desired 1", without_ai)
 
     def test_wait_gives_up_instead_of_hanging(self):
         class Stuck(FakeAws):
