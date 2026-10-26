@@ -30,7 +30,7 @@ OLD_INSPECT = {
 
 class FakeHost:
     def __init__(self, identity=None, memory=2000, image=DIGEST, fail_run=False, unhealthy_after_swap=False,
-                 drop_mounts=False, old_unhealthy=False):
+                 drop_mounts=False, old_unhealthy=False, misconfigure=False, log_text=""):
         self.ident = identity or dict(remote.EXPECTED)
         self.memory = memory
         self.files = {str(remote.ROOT / "image-lock.json"): json.dumps({"grafana": {"digest": image}})}
@@ -39,6 +39,9 @@ class FakeHost:
         self.events = []
         self.run_args = None
         self.fail_run, self.unhealthy_after_swap, self.drop_mounts, self.old_unhealthy = fail_run, unhealthy_after_swap, drop_mounts, old_unhealthy
+        self.misconfigure = misconfigure
+        self.log_text = log_text
+        self.last_stderr = ""
         self.swapped = False
 
     def identity(self):
@@ -55,8 +58,12 @@ class FakeHost:
         return self.files[str(path)]
 
     def write_private(self, path, text):
-        self.events.append("backup")
+        self.events.append("evidence" if str(path).endswith("failure-evidence.txt") else "backup")
         self.files[str(path)] = text
+
+    def logs(self, name, tail):
+        self.events.append("logs")
+        return self.log_text
 
     def sleep(self, seconds):
         pass
@@ -87,21 +94,28 @@ class FakeHost:
         if verb == "rm":
             self.containers.pop(args[2], None)
             self.running.discard(args[2])
+            self.swapped = False
             return 0, ""
         if verb == "run":
             self.run_args = list(args)
             if self.fail_run:
+                self.last_stderr = "docker: Error response from daemon: port is already allocated\nsecond line"
                 if check:
                     raise SystemExit("STOP: Docker 단계 실패")
                 return 1, ""
             env = [args[i + 1] for i, v in enumerate(args) if v == "-e"]
+            if self.misconfigure:
+                env = [item for item in env if not item.startswith("GF_USERS_ALLOW_SIGN_UP")]
             publish = [args[i + 1] for i, v in enumerate(args) if v == "--publish"]
             mounts = [args[i + 1] for i, v in enumerate(args) if v == "-v"]
             if self.drop_mounts:
                 mounts = mounts[1:]
             bindings = [{"HostIp": item.rsplit(":3000:3000", 1)[0], "HostPort": "3000"} for item in publish]
             self.containers[remote.CONTAINER] = {
-                "State": {"Running": True}, "Config": {"Env": env},
+                "State": {"Running": True, "Status": "exited" if self.unhealthy_after_swap else "running",
+                          "ExitCode": 137 if self.unhealthy_after_swap else 0, "OOMKilled": self.unhealthy_after_swap,
+                          "Error": "", "StartedAt": "T1", "FinishedAt": "T2"},
+                "Config": {"Env": env},
                 "HostConfig": {"Memory": remote.MEMORY_BYTES, "PortBindings": {"3000/tcp": bindings}},
                 "Mounts": [{"Type": "bind", "Source": m.split(":")[0], "Destination": m.split(":")[1], "RW": not m.endswith(":ro")} for m in mounts]}
             self.running.add(remote.CONTAINER)
@@ -197,6 +211,98 @@ class RollbackTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             execute(host)
         self.assert_restored(host)
+
+
+def run_failing(host):
+    """실패하는 실행의 출력과 예외를 함께 돌려준다."""
+    lines = []
+    with unittest.TestCase().assertRaises(SystemExit):
+        remote.run(host, now="T0", out=lines.append)
+    return lines
+
+
+def evidence_file(host):
+    return host.files[str(remote.ROOT / "before-team-access-T0" / "failure-evidence.txt")]
+
+
+class FailureEvidenceTests(unittest.TestCase):
+    def test_docker_run_failure_reports_the_first_stderr_line(self):
+        host = FakeHost(fail_run=True)
+        lines = run_failing(host)
+        text = evidence_file(host)
+        self.assertIn("docker run 실패: docker: Error response from daemon: port is already allocated", text)
+        self.assertNotIn("second line", text)
+        self.assertIn("ROLLBACK_RESTORED_HEALTHY", lines)
+
+    def test_slow_health_reports_the_wait_time_and_container_state(self):
+        host = FakeHost(unhealthy_after_swap=True, log_text="level=info msg=starting\nlevel=error msg=boom")
+        lines = run_failing(host)
+        text = evidence_file(host)
+        self.assertIn(f"/api/health가 {remote.HEALTH_ATTEMPTS * remote.HEALTH_INTERVAL}초 안에 정상 응답하지 않음", text)
+        self.assertIn("exit_code=137", text)
+        self.assertIn("oom_killed=True", text)
+        self.assertIn("level=error msg=boom", text)
+        self.assertIn("HOST_MEMORY_AVAILABLE_MIB=2000", text)
+        self.assertIn("FAILURE_EVIDENCE", lines)
+        self.assertIn("ROLLBACK_RESTORED_HEALTHY", lines)
+
+    def test_lost_mount_names_the_destination_only(self):
+        host = FakeHost(drop_mounts=True)
+        run_failing(host)
+        text = evidence_file(host)
+        self.assertIn("마운트 누락: /var/lib/grafana", text)
+        self.assertNotIn("/var/lib/docker/volumes", text)
+
+    def test_unapplied_setting_names_the_key_without_values(self):
+        host = FakeHost(misconfigure=True)
+        run_failing(host)
+        text = evidence_file(host)
+        self.assertIn("설정값 미반영: GF_USERS_ALLOW_SIGN_UP", text)
+        self.assertNotIn("GF_USERS_ALLOW_SIGN_UP=", text)
+
+    def test_all_reasons_are_collected_together(self):
+        host = FakeHost(unhealthy_after_swap=True, drop_mounts=True, misconfigure=True)
+        run_failing(host)
+        text = evidence_file(host)
+        for expected in ("/api/health", "마운트 누락", "설정값 미반영"):
+            self.assertIn(expected, text)
+
+    def test_evidence_is_saved_before_the_failed_container_is_removed(self):
+        host = FakeHost(unhealthy_after_swap=True)
+        run_failing(host)
+        self.assertLess(host.events.index("logs"), host.events.index("rm"))
+        self.assertLess(host.events.index("evidence"), host.events.index("rm"))
+
+    def test_lines_with_sensitive_words_are_hidden_everywhere(self):
+        secret_lines = "password=hunter2\nAuthorization: Bearer abc\nlevel=info msg=ok\nsession cookie=xyz\napi_key=k1"
+        host = FakeHost(unhealthy_after_swap=True, log_text=secret_lines)
+        lines = run_failing(host)
+        everything = evidence_file(host) + "\n".join(lines)
+        for leaked in ("hunter2", "Bearer abc", "xyz", "k1"):
+            self.assertNotIn(leaked, everything)
+        self.assertIn("level=info msg=ok", everything)
+        self.assertIn("[민감 단어가 있어 가린 줄]", everything)
+
+    def test_only_the_last_lines_are_kept(self):
+        many = "\n".join(f"line{i}" for i in range(500))
+        host = FakeHost(unhealthy_after_swap=True, log_text=many)
+        run_failing(host)
+        text = evidence_file(host)
+        self.assertIn("line499", text)
+        self.assertNotIn("line100\n", text)
+
+    def test_successful_swap_writes_no_evidence(self):
+        host = FakeHost()
+        execute(host)
+        self.assertNotIn("evidence", host.events)
+        self.assertNotIn("logs", host.events)
+
+    def test_evidence_does_not_change_the_rollback_result(self):
+        host = FakeHost(unhealthy_after_swap=True)
+        run_failing(host)
+        self.assertIn(remote.CONTAINER, host.running)
+        self.assertEqual(host.containers[remote.CONTAINER]["HostConfig"]["Memory"], 384 * 1024 ** 2)
+        self.assertNotIn(remote.SAVED, host.containers)
 
 
 class PreflightTests(unittest.TestCase):
