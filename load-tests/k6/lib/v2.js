@@ -81,8 +81,24 @@ export function currentUserNumber() {
   return (((__VU - 1) * 7919 + __ITER * 104729) % USER_COUNT) + 1;
 }
 
+export function userIdForNumber(userNumber) {
+  return USER_ID_OFFSET + userNumber;
+}
+
+export function currentUserId() {
+  return userIdForNumber(currentUserNumber());
+}
+
+export function userCount() {
+  return USER_COUNT;
+}
+
 export function tokenForUserNumber(userNumber) {
-  const userId = USER_ID_OFFSET + userNumber;
+  return tokenForUserId(userIdForNumber(userNumber));
+}
+
+// 서명 비밀이 있으면 어떤 사용자의 토큰도 만들 수 있다. 친구 요청을 수락하거나 선물을 수락하는 '상대방' 토큰에도 쓴다.
+export function tokenForUserId(userId) {
   const now = Math.floor(Date.now() / 1000);
   const cached = tokenCache[userId];
   if (cached && cached.expiresAt - now > 300) {
@@ -118,13 +134,15 @@ export function v2Request({
   validate,
   onSuccess,
   successStatuses = [200],
-  expectedErrorStatuses = [],
-  userNumber = currentUserNumber(),
+  expectedErrorStatuses: allowedErrorStatuses = [],
+  userId = currentUserId(),
 }) {
-  const tags = { endpoint, workload };
+  // 스모크에서는 정상 업무 오류(409, 422 등)를 허용하지 않는다. 계약이 틀리면 바로 드러나게 하기 위해서다.
+  const expectedErrorStatuses = isSmokeProfile() ? [] : allowedErrorStatuses;
+  const tags = { endpoint, workload, rw: method === 'GET' ? 'read' : 'write' };
   const requestHeaders = {
     Accept: 'application/json',
-    Authorization: `Bearer ${tokenForUserNumber(userNumber)}`,
+    Authorization: `Bearer ${tokenForUserId(userId)}`,
     ...gateHeaders(),
     ...headers,
   };
@@ -181,6 +199,10 @@ function normalizeProfile(profile) {
   return profile;
 }
 
+export function isSmokeProfile() {
+  return normalizeProfile(PROFILE) === 'smoke';
+}
+
 // 스테이징 ALB는 운영과 공용이다. 30 RPS를 넘는 profile(spike 60, breakpoint 최대 500)은 명시 승인 변수가 있어야 한다.
 export function guardSharedAlb() {
   const profile = normalizeProfile(PROFILE);
@@ -197,7 +219,7 @@ export function v2Options({ endpoint, exec, changesData = false }) {
   return apiTestOptions({ endpoint, exec, authenticated: false, changesData });
 }
 
-export function v2WorkloadOptions({ workload, exec, smokeExec }) {
+export function v2WorkloadOptions({ workload, exec, smokeExec, rwThresholds = false }) {
   validateV2Environment();
   guardSharedAlb();
   const profile = normalizeProfile(PROFILE);
@@ -215,6 +237,12 @@ export function v2WorkloadOptions({ workload, exec, smokeExec }) {
     [`http_req_duration{workload:${workload}}`]: ['p(95)<500', 'p(99)<1000'],
     dropped_iterations: ['count==0'],
   };
+  if (rwThresholds) {
+    // 읽기와 쓰기를 따로 판정한다(쓰기 기준은 V1 잠정 SLO: p95 800ms, p99 1.5s).
+    delete thresholds[`http_req_duration{workload:${workload}}`];
+    thresholds[`http_req_duration{workload:${workload},rw:read}`] = ['p(95)<500', 'p(99)<1000'];
+    thresholds[`http_req_duration{workload:${workload},rw:write}`] = ['p(95)<800', 'p(99)<1500'];
+  }
   const base = {
     discardResponseBodies: false,
     summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
@@ -238,6 +266,26 @@ export function v2WorkloadOptions({ workload, exec, smokeExec }) {
         [`checks{workload:${workload}}`]: ['rate==1'],
         [`http_req_failed{workload:${workload}}`]: ['rate==0'],
         [`business_errors{workload:${workload}}`]: ['rate==0'],
+      },
+    };
+  }
+
+  // 로컬 모의 서버에서 읽기:쓰기 비율을 확인하는 용도. 실제 스테이징에서는 쓸 수 없다.
+  if (profile === 'mockcheck') {
+    if (!(__ENV.V2_ALLOW_LOCAL_MOCK === 'true' && LOCAL_MOCK_URL.test(BASE_URL))) {
+      throw new Error("PROFILE=mockcheck runs only against the local mock server.");
+    }
+    return {
+      ...base,
+      scenarios: {
+        [workload]: {
+          executor: 'shared-iterations',
+          exec,
+          vus: 10,
+          iterations: Number(__ENV.V2_MOCKCHECK_ITERATIONS || 2000),
+          maxDuration: '5m',
+          tags: { ...tag, test_type: 'mockcheck' },
+        },
       },
     };
   }
