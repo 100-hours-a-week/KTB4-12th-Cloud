@@ -85,6 +85,7 @@ class Host:
 
     def docker(self, *args, check=True):
         result = subprocess.run(["docker", *args], capture_output=True, text=True)
+        self.last_stderr = result.stderr
         if check:
             require(result.returncode == 0, "Docker 단계 실패: " + args[0] + " " + (result.stderr.strip().splitlines() or [""])[0][:160])
         return result.returncode, result.stdout.strip()
@@ -97,6 +98,11 @@ class Host:
                 return response.status == 200 and json.loads(response.read() or "null").get("database") == "ok"
         except (OSError, ValueError, AttributeError, urllib.error.URLError):
             return False
+
+    def logs(self, name, tail):
+        """컨테이너 로그(표준 출력과 오류를 합쳐서) 마지막 tail줄. 실패해도 예외 없이 빈 문자열."""
+        result = subprocess.run(["docker", "logs", "--tail", str(tail), name], capture_output=True, text=True)
+        return result.stdout + result.stderr
 
     def sleep(self, seconds):
         time.sleep(seconds)
@@ -136,11 +142,18 @@ def is_configured(inspect, private_ip):
             and inspect["HostConfig"].get("Memory") == MEMORY_BYTES)
 
 
-def wait_healthy(host, attempts=30):
+HEALTH_ATTEMPTS = 30
+HEALTH_INTERVAL = 2
+LOG_TAIL = 80
+# 이 단어가 들어간 로그 줄은 증거에서 내용을 가린다(비밀이 섞였을 가능성 차단).
+SENSITIVE_WORDS = ("password", "passwd", "secret", "token", "authorization", "api_key", "apikey", "cookie")
+
+
+def wait_healthy(host, attempts=HEALTH_ATTEMPTS):
     for _ in range(attempts):
         if host.healthy():
             return True
-        host.sleep(2)
+        host.sleep(HEALTH_INTERVAL)
     return False
 
 
@@ -149,29 +162,87 @@ def inspect_of(host, name):
     return json.loads(raw)[0] if code == 0 else None
 
 
-def swap_container(host, inspect, image, private_ip, stamp):
+def unconfigured_items(inspect, private_ip):
+    """설정값 중 반영되지 않은 항목의 이름만 돌려준다(값은 싣지 않는다)."""
+    env = set(inspect["Config"]["Env"])
+    missing = [item.split("=", 1)[0] for item in ENV if item not in env]
+    bindings = inspect["HostConfig"].get("PortBindings", {}).get("3000/tcp") or []
+    if not any(b.get("HostIp") == private_ip for b in bindings):
+        missing.append("사설 IP 포트 게시")
+    if inspect["HostConfig"].get("Memory") != MEMORY_BYTES:
+        missing.append("메모리 제한")
+    return missing
+
+
+def verify_new_container(host, old, private_ip, created):
+    """검증에 실패한 이유를 모두 모아 돌려준다. 빈 목록이면 통과."""
+    if created[0] != 0:
+        stderr = (getattr(host, "last_stderr", "") or "").strip().splitlines()
+        return ["docker run 실패" + (": " + stderr[0][:200] if stderr else "")]
+    new = inspect_of(host, CONTAINER)
+    if new is None:
+        return ["새 컨테이너를 조회할 수 없음"]
+    reasons = []
+    if not wait_healthy(host):
+        reasons.append(f"/api/health가 {HEALTH_ATTEMPTS * HEALTH_INTERVAL}초 안에 정상 응답하지 않음")
+    lost = sorted(destination for _, destination in mount_pairs(old) - mount_pairs(new))
+    if lost:
+        reasons.append("마운트 누락: " + ", ".join(lost))
+    missing = unconfigured_items(new, private_ip)
+    if missing:
+        reasons.append("설정값 미반영: " + ", ".join(missing))
+    return reasons
+
+
+def redact_lines(text):
+    lines = []
+    for line in text.splitlines()[-LOG_TAIL:]:
+        lines.append("[민감 단어가 있어 가린 줄]" if any(w in line.lower() for w in SENSITIVE_WORDS) else line[:300])
+    return lines
+
+
+def save_evidence(host, reasons, stamp, out):
+    """실패한 새 컨테이너를 지우기 전에 원인 진단용 증거를 화면과 서버 파일에 남긴다."""
+    lines = ["FAILURE_EVIDENCE", "REASONS:"] + ["- " + reason for reason in reasons]
+    state = inspect_of(host, CONTAINER)
+    if state is not None:
+        info = state.get("State", {})
+        lines.append("STATE status={} exit_code={} oom_killed={} error={!r} started={} finished={}".format(
+            info.get("Status"), info.get("ExitCode"), info.get("OOMKilled"), info.get("Error"),
+            info.get("StartedAt"), info.get("FinishedAt")))
+    lines.append(f"HOST_MEMORY_AVAILABLE_MIB={host.available_memory_mib()}")
+    lines.append(f"LOG_TAIL (최근 {LOG_TAIL}줄, 민감 단어가 있는 줄은 가림)")
+    lines += redact_lines(host.logs(CONTAINER, LOG_TAIL))
+    host.write_private(ROOT / f"before-team-access-{stamp}" / "failure-evidence.txt", "\n".join(lines))
+    for line in lines:
+        out(line)
+
+
+def swap_container(host, inspect, image, private_ip, stamp, out=print):
     backup = ROOT / f"before-team-access-{stamp}" / "grafana-inspect.json"
     host.write_private(backup, json.dumps(inspect, indent=2))
     mounts = mounts_of(inspect)
     renamed = False
-    ok = False
+    reasons = []
     try:
         host.docker("stop", CONTAINER)
         host.docker("rename", CONTAINER, SAVED)
         renamed = True
         created = host.docker("run", *run_args(image, private_ip, mounts), check=False)
-        new = inspect_of(host, CONTAINER) if created[0] == 0 else None
-        ok = (new is not None and wait_healthy(host)
-              and mount_pairs(inspect) <= mount_pairs(new) and is_configured(new, private_ip))
+        reasons = verify_new_container(host, inspect, private_ip, created)
+    except SystemExit as error:
+        reasons = [str(error)]
+        raise
     finally:
-        if not ok:
+        if reasons:
             if renamed:
+                save_evidence(host, reasons, stamp, out)
                 host.docker("rm", "-f", CONTAINER, check=False)
                 host.docker("rename", SAVED, CONTAINER, check=False)
             host.docker("start", CONTAINER, check=False)
             restored = wait_healthy(host)
-            print("ROLLBACK_" + ("RESTORED_HEALTHY" if restored else "RESTORED_NEEDS_CHECK"))
-    require(ok, "새 컨테이너 검증 실패. 이전 컨테이너로 복원했다")
+            out("ROLLBACK_" + ("RESTORED_HEALTHY" if restored else "RESTORED_NEEDS_CHECK"))
+    require(not reasons, "새 컨테이너 검증 실패. 이전 컨테이너로 복원했다")
     return str(backup)
 
 
@@ -191,7 +262,7 @@ def run(host, now=None, out=print):
     if is_configured(inspect, identity["privateIp"]):
         out("CONTAINER_ALREADY_CONFIGURED_NOTHING_CHANGED")
         return
-    backup = swap_container(host, inspect, image, identity["privateIp"], stamp)
+    backup = swap_container(host, inspect, image, identity["privateIp"], stamp, out)
     out("CONTAINER_SWAPPED backup=" + backup + " previous_container=" + SAVED + " (stopped, kept for rollback)")
     out("GRAFANA_URL=http://" + identity["privateIp"] + ":3000 SIGN_UP=on DEFAULT_ROLE=Editor")
     out("NEXT=admin sets Shared folder permissions in the UI")
