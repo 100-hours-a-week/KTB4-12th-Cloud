@@ -1,4 +1,5 @@
 import http from 'k6/http';
+import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
 import { BASE_URL } from './config.js';
@@ -30,6 +31,14 @@ const V1_READS = {
   friends_list: { path: () => '/api/friends', validate: (d) => Array.isArray(d?.friends) },
   received_gifts_list: { path: () => '/api/gifts/received', validate: (d) => Array.isArray(d?.items) },
 };
+
+// 흐름을 건너뛴 이유를 기록한다. 스모크에서는 건너뜀도 실패다(조용히 통과하면 흐름이 검증되지 않았다는 사실이 가려진다).
+function skip(ctx, flow, reason) {
+  skippedFlows.add(1, { flow, reason });
+  if (isSmokeProfile()) {
+    check(null, { [`${flow}: flow ran without being skipped (${reason})`]: () => false }, { workload: ctx.workload, flow });
+  }
+}
 
 function pick(list) {
   return list[Math.floor(Math.random() * list.length)];
@@ -77,9 +86,6 @@ export function collectProducts() {
 }
 
 function partnerNumber(own) {
-  if (isSmokeProfile()) {
-    return ((own + Math.floor(userCount() / 2)) % userCount()) + 1;
-  }
   let candidate = 1 + Math.floor(Math.random() * userCount());
   if (candidate === own) {
     candidate = (candidate % userCount()) + 1;
@@ -125,36 +131,6 @@ function dislikeUpdate(ctx) {
   });
 }
 
-// 받은 선물 목록 조회 → 완료된 선물에 리뷰 작성 → 삭제(소프트 삭제라 같은 선물로 반복 가능).
-function reviewFlow(ctx) {
-  const list = readOperation(ctx, 'received_gifts_list');
-  if (!list.valid) return;
-  const gifts = (list.response.json('data.items') || []).filter((gift) => gift.giftStatus === 'COMPLETED');
-  if (gifts.length === 0) {
-    skippedFlows.add(1, { flow: 'review', reason: 'no_completed_gift' });
-    return;
-  }
-  const giftId = (isSmokeProfile() ? gifts[0] : pick(gifts)).giftId;
-  const created = call(ctx, {
-    method: 'POST',
-    path: `/api/gifts/${giftId}/review`,
-    endpoint: 'review_create',
-    body: { rating: 1 + Math.floor(Math.random() * 5), content: '부하 시험 리뷰' },
-    successStatuses: [201],
-    expectedErrorStatuses: [409, 404],
-    validate: (d) => Number.isInteger(d?.review?.reviewId),
-  });
-  if (created.response.status === 201 || created.response.status === 409) {
-    call(ctx, {
-      method: 'DELETE',
-      path: `/api/gifts/${giftId}/review`,
-      endpoint: 'review_delete',
-      expectedErrorStatuses: [404],
-      validate: (d) => Number.isInteger(d?.giftId),
-    });
-  }
-}
-
 // 사용자 A가 B에게 친구 요청 → B가 수락(양쪽에 크레딧 +100,000, 친구 관계 생성, 알림 생성).
 function friendFlow(ctx) {
   const own = currentUserNumber();
@@ -184,7 +160,7 @@ function pickFriend(ctx) {
   if (!list.valid) return null;
   const friends = list.response.json('data.friends') || [];
   if (friends.length === 0) {
-    skippedFlows.add(1, { flow: 'payment', reason: 'no_friend' });
+    skip(ctx, 'payment', 'no_friend');
     return null;
   }
   return (isSmokeProfile() ? friends[0] : pick(friends)).userId;
@@ -221,14 +197,50 @@ function paymentAcceptFlow(ctx) {
     endpoint: 'payment_status',
     validate: (d) => d?.paymentStatus === 'COMPLETED',
   });
-  call(ctx, {
+  acceptGift(ctx, giftId, friendId);
+}
+
+function acceptGift(ctx, giftId, recipientId) {
+  return call(ctx, {
     method: 'POST',
     path: `/api/gifts/received/${giftId}/accept`,
     endpoint: 'gift_accept',
-    userId: friendId,
+    userId: recipientId,
     expectedErrorStatuses: [409, 404],
     validate: (d) => d?.giftStatus === 'COMPLETED',
   });
+}
+
+// 친구 목록 → 결제 → 받는 사람이 수락 → 받는 사람이 리뷰 작성 → 삭제(소프트 삭제).
+// 픽스처 선물은 결제 주문과 연결되지 않아 V2 목록·상세 API에 보이지 않으므로, 리뷰도 결제로 만든 선물에 쓴다.
+function paymentAcceptReviewFlow(ctx) {
+  const friendId = pickFriend(ctx);
+  if (friendId === null) return;
+  const payment = createPayment(ctx, friendId);
+  if (payment.response.status !== 201) return;
+  const giftId = payment.response.json('data.giftId');
+  const accepted = acceptGift(ctx, giftId, friendId);
+  if (accepted.response.status !== 200) return;
+  const created = call(ctx, {
+    method: 'POST',
+    path: `/api/gifts/${giftId}/review`,
+    endpoint: 'review_create',
+    userId: friendId,
+    body: { rating: 1 + Math.floor(Math.random() * 5), content: '부하 시험 리뷰' },
+    successStatuses: [201],
+    expectedErrorStatuses: [409, 404],
+    validate: (d) => Number.isInteger(d?.review?.reviewId),
+  });
+  if (created.response.status === 201 || created.response.status === 409) {
+    call(ctx, {
+      method: 'DELETE',
+      path: `/api/gifts/${giftId}/review`,
+      endpoint: 'review_delete',
+      userId: friendId,
+      expectedErrorStatuses: [404],
+      validate: (d) => Number.isInteger(d?.giftId),
+    });
+  }
 }
 
 // 친구 목록 → 결제 → 결제 취소(환불, 재고 복구, 결제 서버 취소 호출).
@@ -253,7 +265,7 @@ const reads = (name) => (ctx) => readOperation(ctx, name);
 // 가중치는 반복 단위 %다. 요청 단위 쓰기 비율은 약 19.8%(읽기 97 : 쓰기 24)가 되도록 맞췄다.
 export const OPERATIONS = [
   { name: 'products_search', weight: 14, run: reads('products_search') },
-  { name: 'products_list', weight: 10, run: reads('products_list') },
+  { name: 'products_list', weight: 11, run: reads('products_list') },
   { name: 'product_detail', weight: 12, run: reads('product_detail') },
   { name: 'user_profile', weight: 6, run: reads('user_profile') },
   { name: 'friends_list', weight: 6, run: reads('friends_list') },
@@ -267,9 +279,9 @@ export const OPERATIONS = [
   { name: 'friend_requests_sent', weight: 3, run: reads('friend_requests_sent') },
   { name: 'preference_update', weight: 2, run: preferenceUpdate },
   { name: 'dislike_update', weight: 2, run: dislikeUpdate },
-  { name: 'review_flow', weight: 2, run: reviewFlow },
   { name: 'friend_flow', weight: 3, run: friendFlow },
   { name: 'payment_accept_flow', weight: 4, run: paymentAcceptFlow },
+  { name: 'payment_accept_review_flow', weight: 1, run: paymentAcceptReviewFlow },
   { name: 'payment_cancel_flow', weight: 1, run: paymentCancelFlow },
 ];
 

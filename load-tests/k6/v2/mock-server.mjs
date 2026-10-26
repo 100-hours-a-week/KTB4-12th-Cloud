@@ -11,12 +11,13 @@ const ID_BASE = Number(process.env.MOCK_ID_BASE || 1000);
 const ID_GAP = Number(process.env.MOCK_ID_GAP || 0);
 const FAIL_PATH = process.env.MOCK_FAIL_PATH || '';
 const PRICE_SKEW = Number(process.env.MOCK_PRICE_SKEW || 0); // 결제 가격 불일치(409)를 일으키는 시험용
+const NO_FRIENDS = process.env.MOCK_NO_FRIENDS === '1'; // 친구 목록을 비워 결제 흐름 건너뜀을 일으키는 시험용
 
 const stats = freshStats();
 const state = { reviews: new Set(), orders: {}, gifts: {}, requests: {}, nextId: 1 };
 
 function freshStats() {
-  return { hits: {}, subjects: [], rejected: { gate: 0, auth: 0 }, logins: 0, reads: 0, writes: 0, flows: {} };
+  return { hits: {}, subjects: [], rejected: { gate: 0, auth: 0 }, logins: 0, reads: 0, writes: 0, partners: [] };
 }
 
 function reply(response, status, body) {
@@ -76,8 +77,14 @@ const routes = [
   ['GET', '/products', () => ok({ products: CATALOG, appliedSort: 'POPULAR', pagination })],
   ['GET', '/products/:id', (c) => ok({ product: { productId: Number(c.params[0]) } })],
   ['GET', '/users/me', (c) => ok({ userId: c.subject })],
-  ['GET', '/friends', (c) => ok({ friends: [{ friendId: 1, userId: friendOf(c.subject), name: 'f', email: 'f@x', birth: null }], pagination })],
-  ['GET', '/gifts/received', (c) => ok({ items: [{ giftId: 900000 + c.subject, orderId: null, giftStatus: 'COMPLETED' }], pagination })],
+  ['GET', '/friends', (c) => ok({ friends: NO_FRIENDS ? [] : [{ friendId: 1, userId: friendOf(c.subject), name: 'f', email: 'f@x', birth: null }], pagination })],
+  // 실제 BE처럼 결제 주문과 연결된 선물만 보인다(order_record_id IS NOT NULL). 픽스처 선물은 보이지 않는다.
+  ['GET', '/gifts/received', (c) => ok({
+    items: Object.entries(state.gifts)
+      .filter(([, gift]) => gift.recipient === c.subject)
+      .map(([giftId, gift]) => ({ giftId: Number(giftId), orderId: gift.orderId, giftStatus: gift.status })),
+    pagination,
+  })],
   ['GET', '/notifications', () => ok({ items: [], pagination })],
   ['GET', '/notifications/unread-count', () => ok({ unreadCount: 0 })],
   ['GET', '/friend-requests/received', () => ok({ items: [], pagination })],
@@ -86,7 +93,9 @@ const routes = [
   ['PUT', '/preferences/dislike-categories', (c) => (Array.isArray(c.body.categoryIds) ? ok({ selectedCategoryIds: c.body.categoryIds }) : fail(400, 'INVALID_REQUEST'))],
   ['POST', '/gifts/:id/review', (c) => {
     const key = `${c.subject}:${c.params[0]}`;
-    if (Number(c.params[0]) !== 900000 + c.subject) return fail(404, 'GIFT_NOT_FOUND');
+    const gift = state.gifts[c.params[0]];
+    // 리뷰는 받는 사람이 완료(수락)한 선물에만 쓸 수 있다.
+    if (!gift || gift.recipient !== c.subject || gift.status !== 'COMPLETED') return fail(404, 'GIFT_NOT_FOUND');
     if (!(c.body.rating >= 1 && c.body.rating <= 5)) return fail(400, 'INVALID_REQUEST');
     if (state.reviews.has(key)) return fail(409, 'REVIEW_ALREADY_EXISTS');
     state.reviews.add(key);
@@ -101,6 +110,7 @@ const routes = [
     if (!Number.isInteger(c.body.receiverId) || c.body.receiverId <= 0) return fail(400, 'INVALID_REQUEST');
     if (c.body.receiverId === c.subject) return fail(422, 'FRIEND_CANNOT_ADD_SELF');
     const requestId = state.nextId++;
+    stats.partners.push(c.body.receiverId);
     state.requests[requestId] = { from: c.subject, to: c.body.receiverId, status: 'PENDING' };
     return created({ requestId, status: 'PENDING', requesterId: c.subject, receiverId: c.body.receiverId });
   }],

@@ -245,13 +245,13 @@ class VerifyUserIdTests(unittest.TestCase):
 class MixedReadWriteTests(unittest.TestCase):
     SCRIPT = "workloads/v2-mixed-rw.js"
     EXPECTED_SMOKE_HITS = {
-        "/products/:id": 1, "/users/me": 1, "/friends": 3, "/gifts/received": 2, "/credits/balance": 1,
+        "/products/:id": 1, "/users/me": 1, "/friends": 4, "/gifts/received": 1, "/credits/balance": 1,
         "/notifications": 1, "/notifications/unread-count": 1, "/preferences": 1,
         "/preferences/dislike-categories": 1, "/friend-requests/received": 1, "/friend-requests/sent": 1,
         "/payments/:id": 1, "PUT /preferences": 1, "PUT /preferences/dislike-categories": 1,
-        "POST /gifts/:id/review": 1, "DELETE /gifts/:id/review": 1, "POST /friend-requests": 1,
-        "POST /friend-requests/:id/accept": 1, "POST /payments": 2, "POST /payments/:id/cancellations": 1,
-        "POST /gifts/received/:id/accept": 1,
+        "POST /friend-requests": 1, "POST /friend-requests/:id/accept": 1, "POST /payments": 3,
+        "POST /gifts/received/:id/accept": 2, "POST /gifts/:id/review": 1, "DELETE /gifts/:id/review": 1,
+        "POST /payments/:id/cancellations": 1,
     }
 
     def test_smoke_runs_every_operation_with_the_right_user(self):
@@ -269,8 +269,10 @@ class MixedReadWriteTests(unittest.TestCase):
             result = run_k6(self.SCRIPT, base)
             self.assertEqual(result.returncode, 0)
             seen = stats(base)
-            self.assertEqual(seen["hits"]["POST /gifts/received/:id/accept"], 1)
+            # 선물 수락은 결제·수락 흐름과 결제·수락·리뷰 흐름에서 한 번씩, 친구 수락은 친구 흐름에서 한 번이다.
+            self.assertEqual(seen["hits"]["POST /gifts/received/:id/accept"], 2)
             self.assertEqual(seen["hits"]["POST /friend-requests/:id/accept"], 1)
+            self.assertEqual(seen["rejected"], {"gate": 0, "auth": 0})
 
     def test_read_write_ratio_is_about_80_20(self):
         with mock_server() as base:
@@ -280,8 +282,9 @@ class MixedReadWriteTests(unittest.TestCase):
             share = seen["writes"] / (seen["reads"] + seen["writes"])
             self.assertGreater(share, 0.17, share)
             self.assertLess(share, 0.23, share)
-            self.assertGreater(seen["hits"]["POST /payments"], 70)
-            self.assertLess(seen["hits"]["POST /payments"], 150)
+            self.assertGreater(seen["hits"]["POST /payments"], 60)
+            self.assertLess(seen["hits"]["POST /payments"], 180)
+            self.assertGreater(seen["hits"]["POST /gifts/:id/review"], 5)
 
     def test_scenarios_do_not_fail_with_normal_business_errors_outside_smoke(self):
         # 가격이 어긋나 결제가 409로 거절돼도 정상 업무 오류라 본 시험은 통과하지만, 스모크는 계약 오류로 잡아야 한다.
@@ -291,6 +294,32 @@ class MixedReadWriteTests(unittest.TestCase):
         with mock_server(MOCK_PRICE_SKEW="1") as base:
             mix = run_k6(self.SCRIPT, base, PROFILE="mockcheck", V2_MOCKCHECK_ITERATIONS="600")
             self.assertEqual(mix.returncode, 0, mix.stdout[-800:] + mix.stderr[-800:])
+
+    def test_skipped_flow_fails_the_smoke_but_not_the_mix(self):
+        # 친구가 없어 결제 흐름을 건너뛰면 스모크는 실패해야 한다(조용한 통과 방지). 본 시험에서는 건너뜀을 허용한다.
+        with mock_server(MOCK_NO_FRIENDS="1") as base:
+            smoke = run_k6(self.SCRIPT, base)
+            self.assertEqual(smoke.returncode, 99, smoke.stdout[-800:] + smoke.stderr[-800:])
+            self.assertIn("flow ran without being skipped", smoke.stdout + smoke.stderr)
+        with mock_server(MOCK_NO_FRIENDS="1") as base:
+            mix = run_k6(self.SCRIPT, base, PROFILE="mockcheck", V2_MOCKCHECK_ITERATIONS="300")
+            self.assertEqual(mix.returncode, 0, mix.stdout[-800:] + mix.stderr[-800:])
+            self.assertEqual(stats(base)["hits"].get("POST /payments", 0), 0)
+
+    def test_smoke_can_be_repeated_because_the_friend_request_partner_is_random(self):
+        with mock_server() as base:
+            for _ in range(6):
+                result = run_k6(self.SCRIPT, base)
+                self.assertEqual(result.returncode, 0, result.stdout[-600:] + result.stderr[-600:])
+            self.assertGreaterEqual(len(set(stats(base)["partners"])), 4)
+
+    def test_fixture_style_gifts_are_invisible_and_reviews_use_paid_gifts(self):
+        with mock_server() as base:
+            result = run_k6(self.SCRIPT, base, PROFILE="mockcheck", V2_MOCKCHECK_ITERATIONS="800")
+            self.assertEqual(result.returncode, 0, result.stdout[-800:] + result.stderr[-800:])
+            seen = stats(base)
+            self.assertGreater(seen["hits"]["POST /gifts/:id/review"], 0)
+            self.assertEqual(seen["hits"]["POST /gifts/:id/review"], seen["hits"]["DELETE /gifts/:id/review"])
 
     def test_server_error_on_a_write_fails_the_smoke(self):
         with mock_server(MOCK_FAIL_PATH="payments") as base:
