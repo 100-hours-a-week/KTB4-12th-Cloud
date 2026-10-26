@@ -6,7 +6,7 @@
     "load-test"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "timezone": "browser",
   "refresh": "1m",
@@ -49,7 +49,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "요청 수"
+          "label": "요청 수",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -110,7 +113,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "평균"
+          "label": "평균",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -130,7 +136,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "최대"
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -150,7 +159,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "p95"
+          "label": "p95",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -211,7 +223,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "ELB 5xx"
+          "label": "ELB 5xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -231,7 +246,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "대상 5xx"
+          "label": "대상 5xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -251,7 +269,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "대상 연결 오류"
+          "label": "대상 연결 오류",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -312,7 +333,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "대상 4xx"
+          "label": "대상 4xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -374,7 +398,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{ServiceName}}"
+          "label": "{{ServiceName}}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -436,7 +463,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{ServiceName}}"
+          "label": "{{ServiceName}}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -497,7 +527,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "평균"
+          "label": "평균",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -517,7 +550,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "최대"
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -578,7 +614,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "최대"
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -639,7 +678,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "최소"
+          "label": "최소",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -700,7 +742,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "최소"
+          "label": "최소",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -761,7 +806,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "읽기 최대"
+          "label": "읽기 최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -781,7 +829,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "쓰기 최대"
+          "label": "쓰기 최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -842,7 +893,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "읽기"
+          "label": "읽기",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         },
         {
           "datasource": {
@@ -862,7 +916,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "쓰기"
+          "label": "쓰기",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
@@ -923,7 +980,10 @@
           "matchExact": true,
           "id": "",
           "expression": "",
-          "label": "{{AutoScalingGroupName}}"
+          "label": "{{AutoScalingGroupName}}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
         }
       ],
       "fieldConfig": {
