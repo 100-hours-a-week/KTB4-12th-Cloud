@@ -124,6 +124,9 @@ required_keys = (
     "LOGIN_RATE_LIMIT_HMAC_SECRET_BASE64",
     "PROFILING_SERVICE_TOKEN",
     "PAYMENT_SERVER_API_KEY",
+    "REDIS_PASSWORD",
+    "SMTP_USERNAME",
+    "SMTP_PASSWORD",
 )
 if os.environ["AI_CHAT_ENABLED"] == "true":
     required_keys += ("AI_CHAT_SERVICE_TOKEN", "CHAT_CONVERSATION_TOKEN_SECRET_BASE64")
@@ -174,10 +177,22 @@ else
   sudo docker compose "${compose_args[@]}" up --detach --no-deps --wait --wait-timeout 240 database
 fi
 
+# 앱은 --no-deps로 하나씩 기동하므로 Backend가 의존하는 Redis를 먼저 기동한다. 변경이 없으면 컨테이너를 재생성하지 않는다.
+sudo docker compose "${compose_args[@]}" pull redis
+sudo docker compose "${compose_args[@]}" up --detach --no-deps --wait --wait-timeout 120 redis
+
 sudo docker compose "${compose_args[@]}" pull main-backend payment-server frontend
 # Main의 Flyway 및 Health 완료 후 Payment, Frontend 순으로 기동.
 for application_service in main-backend payment-server frontend; do
-  sudo docker compose "${compose_args[@]}" up --detach --no-deps --wait --wait-timeout 240 "${application_service}"
+  if sudo docker compose "${compose_args[@]}" up --detach --no-deps --wait --wait-timeout 240 "${application_service}"; then
+    continue
+  else
+    deploy_status=$?
+    # 롤백이 실패한 컨테이너를 교체하기 전에 시작 오류를 남긴다. 비밀값은 환경변수로만 전달되어 로그에 출력되지 않는다.
+    echo "배포 실패: ${application_service} 최근 로그(100줄)" >&2
+    sudo docker compose "${compose_args[@]}" logs --no-color --tail 100 "${application_service}" >&2 || true
+    exit "${deploy_status}"
+  fi
 done
 
 SECRET_ENV_FILE="${secret_env_file}" "${deploy_path}/scripts/verify.sh" "${deploy_path}"

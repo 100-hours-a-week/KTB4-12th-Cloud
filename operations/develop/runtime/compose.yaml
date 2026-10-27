@@ -33,6 +33,20 @@ services:
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       AWS_EC2_METADATA_V1_DISABLED: "true"
       PRODUCT_IMAGE_BUCKET: ${PRODUCT_IMAGE_BUCKET}
+      # 로그인 제한과 이메일 인증번호가 Redis를 쓴다. 주소는 Compose 서비스 이름으로 고정하고 비밀번호만 Runtime Secret에서 받는다.
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      # 이메일 인증과 결제 영수증 메일은 SES SMTP를 쓴다. 주소와 암호화 설정은 고정, 자격 증명만 Runtime Secret에서 받는다.
+      SMTP_HOST: email-smtp.${AWS_REGION:-ap-northeast-2}.amazonaws.com
+      SMTP_PORT: "587"
+      SMTP_AUTH: "true"
+      SMTP_STARTTLS_ENABLE: "true"
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME is required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+      SMTP_FROM_ADDRESS: no-reply@seonjalal.com
+      # Backend 기본 Health는 Redis와 SMTP 접속까지 확인한다. 메일 서버 장애가 앱 전체를 unhealthy로 만들지 않도록 메일만 Health에서 제외한다(Redis는 로그인 경로라 유지).
+      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
       # PR #402: 인덱스 동기화·운영 검증 전에는 반드시 기존 MySQL 검색 유지.
       PRODUCT_SEARCH_ENABLED: "false"
       JWT_SECRET_BASE64: ${JWT_SECRET_BASE64}
@@ -79,6 +93,8 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
       interval: 10s
@@ -118,6 +134,31 @@ services:
     networks:
       - application
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    # 호스트 Port를 열지 않고 application 네트워크의 Backend만 접속한다. 메모리는 Container 제한 안에서 128MB로 고정한다.
+    command:
+      - /bin/sh
+      - -ec
+      - exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy noeviction
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli --raw ping)\" = PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    mem_limit: 192m
+    cpus: 0.25
+    networks:
+      - application
+
   database:
     image: mysql:8.4
     restart: unless-stopped
@@ -141,6 +182,9 @@ services:
     cpus: 0.75
     networks:
       - application
+
+volumes:
+  redis-data:
 
 networks:
   application:
