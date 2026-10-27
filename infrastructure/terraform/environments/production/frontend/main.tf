@@ -125,7 +125,8 @@ resource "aws_cloudfront_distribution" "production" {
     cached_methods         = ["GET", "HEAD"]
     compress               = true
     # 최초 전환에서는 HTML/자산의 오래된 캐시를 배제. 후속 캐시 최적화는 별도.
-    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    cache_policy_id            = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.frontend_security.id
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.spa.arn

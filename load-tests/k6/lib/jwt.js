@@ -55,7 +55,7 @@ function subjectFromSeedToken(token) {
   return subject;
 }
 
-function signHs256({ subject, issuer, issuedAt, expiresAt, signingKey }) {
+export function signHs256({ subject, issuer, issuedAt, expiresAt, signingKey }) {
   const header = encoding.b64encode(
     JSON.stringify({ alg: 'HS256', typ: 'JWT' }),
     'rawurl',

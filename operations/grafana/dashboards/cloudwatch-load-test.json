@@ -1,0 +1,1117 @@
+{
+  "uid": "seonjalal-cw-loadtest",
+  "title": "CloudWatch 부하 테스트 (ALB·ECS·RDS)",
+  "tags": [
+    "cloudwatch",
+    "load-test"
+  ],
+  "schemaVersion": 39,
+  "version": 4,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "1m",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "ALB 요청 수 (분당)",
+      "description": "스테이징과 운영이 같은 ALB를 공유한다. 두 환경의 합계다.",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "RequestCount",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "요청 수",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "ALB 대상 응답 시간",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "평균",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "C",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetResponseTime",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "p95",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "p95",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "ALB 5xx",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_ELB_5XX_Count",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "ELB 5xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_5XX_Count",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "대상 5xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "C",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "TargetConnectionErrorCount",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "대상 연결 오류",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "ALB 4xx",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ApplicationELB",
+          "metricName": "HTTPCode_Target_4XX_Count",
+          "dimensions": {
+            "LoadBalancer": "${alb}"
+          },
+          "statistic": "Sum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "대상 4xx",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "ECS 서비스 CPU",
+      "description": "서비스 예약 CPU 대비 사용률",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ECS",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "ClusterName": "${cluster}",
+            "ServiceName": "${service}"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "${PROP('Dim.ServiceName')}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "ECS 서비스 메모리",
+      "description": "서비스 예약 메모리 대비 사용률",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/ECS",
+          "metricName": "MemoryUtilization",
+          "dimensions": {
+            "ClusterName": "${cluster}",
+            "ServiceName": "${service}"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "${PROP('Dim.ServiceName')}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "RDS CPU",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "평균",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "RDS 연결 수",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "DatabaseConnections",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "RDS 여유 메모리",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "FreeableMemory",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Minimum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "최소",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "RDS CPU 크레딧 잔량",
+      "description": "t4g 계열은 크레딧이 바닥나면 CPU가 제한된다",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "CPUCreditBalance",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Minimum",
+          "period": "300",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "최소",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "RDS 읽기/쓰기 지연",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "ReadLatency",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "읽기 최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "WriteLatency",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "쓰기 최대",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "RDS 읽기/쓰기 IOPS",
+      "description": "",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "ReadIOPS",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "읽기",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        },
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "B",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/RDS",
+          "metricName": "WriteIOPS",
+          "dimensions": {
+            "DBInstanceIdentifier": "${rds}"
+          },
+          "statistic": "Maximum",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "쓰기",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "iops",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "호스트(ASG) CPU",
+      "description": "ASG 단위 집계라 호스트 ID가 바뀌어도 이어진다. 기본 모니터링은 5분 간격",
+      "datasource": {
+        "type": "cloudwatch",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "cloudwatch",
+            "uid": "${ds}"
+          },
+          "refId": "A",
+          "queryMode": "Metrics",
+          "region": "${region}",
+          "namespace": "AWS/EC2",
+          "metricName": "CPUUtilization",
+          "dimensions": {
+            "AutoScalingGroupName": "${asg}"
+          },
+          "statistic": "Average",
+          "period": "60",
+          "matchExact": true,
+          "id": "",
+          "expression": "",
+          "label": "${PROP('Dim.AutoScalingGroupName')}",
+          "metricQueryType": 0,
+          "metricEditorMode": 0,
+          "sqlExpression": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "데이터 소스",
+        "type": "datasource",
+        "query": "cloudwatch",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "region",
+        "type": "constant",
+        "query": "ap-northeast-2",
+        "hide": 2
+      },
+      {
+        "name": "alb",
+        "label": "ALB",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${ds}"
+        },
+        "query": "dimension_values($region,AWS/ApplicationELB,RequestCount,LoadBalancer)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "allValue": null,
+        "current": {},
+        "sort": 1,
+        "regex": ""
+      },
+      {
+        "name": "cluster",
+        "label": "ECS 클러스터",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${ds}"
+        },
+        "query": "dimension_values($region,AWS/ECS,CPUUtilization,ClusterName)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "allValue": null,
+        "current": {},
+        "sort": 1,
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
+      },
+      {
+        "name": "service",
+        "label": "ECS 서비스",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${ds}"
+        },
+        "query": "dimension_values($region,AWS/ECS,CPUUtilization,ServiceName,{\"ClusterName\":\"$cluster\"})",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": null,
+        "current": {},
+        "sort": 1,
+        "regex": ""
+      },
+      {
+        "name": "rds",
+        "label": "RDS",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${ds}"
+        },
+        "query": "dimension_values($region,AWS/RDS,CPUUtilization,DBInstanceIdentifier)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "allValue": null,
+        "current": {},
+        "sort": 1,
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
+      },
+      {
+        "name": "asg",
+        "label": "ASG",
+        "type": "query",
+        "datasource": {
+          "type": "cloudwatch",
+          "uid": "${ds}"
+        },
+        "query": "dimension_values($region,AWS/EC2,CPUUtilization,AutoScalingGroupName)",
+        "refresh": 2,
+        "multi": false,
+        "includeAll": false,
+        "allValue": null,
+        "current": {},
+        "sort": 1,
+        "regex": "/^(?!.*(?:rehearsal|develop)).*$/"
+      }
+    ]
+  }
+}

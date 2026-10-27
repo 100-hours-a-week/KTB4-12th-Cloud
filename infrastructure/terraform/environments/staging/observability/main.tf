@@ -35,7 +35,8 @@ resource "aws_iam_instance_profile" "monitor" {
   role = aws_iam_role.monitor.name
 }
 
-# 인바운드 없음. Grafana는 이후 localhost 바인딩 및 SSM 포트 전달로 접근.
+# 기본은 인바운드 없음(SSM 포트 전달). 팀 접속용 Grafana 3000 규칙은 team-access.tf에 별도 정의.
+# description은 변경하면 SG가 교체되므로 그대로 둔다.
 resource "aws_security_group" "monitor" {
   name        = local.name
   description = "Private monitoring host; no inbound rules; SSM access only"
@@ -55,7 +56,7 @@ resource "aws_vpc_security_group_egress_rule" "https" {
 
 resource "aws_instance" "monitor" {
   ami                         = data.aws_ssm_parameter.al2023.value
-  instance_type               = "t3.small"
+  instance_type               = var.monitor_instance_type
   subnet_id                   = local.subnet_id
   associate_public_ip_address = false
   vpc_security_group_ids      = [aws_security_group.monitor.id]
@@ -66,10 +67,11 @@ resource "aws_instance" "monitor" {
   credit_specification {
     cpu_credits = "standard"
   }
+  # Grafana는 도커 컨테이너라 IMDS 응답이 브리지를 한 번 더 거친다. 홉 1이면 컨테이너가 서버 역할의 자격 증명을 받지 못한다.
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_put_response_hop_limit = 2
   }
   root_block_device {
     encrypted             = true
