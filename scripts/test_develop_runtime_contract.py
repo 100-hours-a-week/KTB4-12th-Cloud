@@ -202,6 +202,22 @@ class DevelopRuntimeContractTest(unittest.TestCase):
         self.assertIn('logs --no-color --tail 100 "${application_service}"', deploy)
         self.assertIn('exit "${deploy_status}"', deploy)
 
+    def test_global_scheduling_on_but_ai_profiling_stays_off(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        # 전역 스케줄러가 꺼지면 알림 SSE 하트비트와 Outbox가 멈춘다(2026-10-28 개발 서버 SSE 장애).
+        self.assertRegex(backend, r'(?m)^      SCHEDULING_ENABLED: "true"$')
+        # AI 프로파일링 호출은 AI 서비스가 준비되기 전까지 별도 플래그로 끈다.
+        self.assertRegex(backend, r'(?m)^      AI_PROFILE_SCHEDULING_ENABLED: "false"$')
+
+    def test_external_dependencies_do_not_gate_app_health(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        self.assertIn('MANAGEMENT_HEALTH_MAIL_ENABLED: "false"', backend)
+        # 표준 설정 이름(management.health.redis.enabled)을 쓴다. SPRING_HEALTH_* 같은 비표준 이름은 효과가 없을 수 있다.
+        self.assertIn('MANAGEMENT_HEALTH_REDIS_ENABLED: "false"', backend)
+        self.assertNotIn("SPRING_HEALTH_REDIS_ENABLED", compose)
+
     def test_verify_checks_redis_health(self):
         verify = (RUNTIME / "scripts/verify.sh").read_text()
         self.assertIn("for service in database redis main-backend payment-server frontend; do", verify)

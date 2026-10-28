@@ -45,8 +45,10 @@ services:
       SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME is required}
       SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
       SMTP_FROM_ADDRESS: no-reply@seonjalal.com
-      # Backend 기본 Health는 Redis와 SMTP 접속까지 확인한다. 메일 서버 장애가 앱 전체를 unhealthy로 만들지 않도록 메일만 Health에서 제외한다(Redis는 로그인 경로라 유지).
+      # Backend 기본 Health는 Redis와 SMTP 접속까지 확인한다. 외부 의존성 장애가 앱 전체를 unhealthy로 만들지 않도록 둘 다 앱 Health에서 제외한다.
+      # 로그인 제한은 Redis 장애 시 MySQL로 대체 동작하는 설계(LoginRateLimiter)라 앱 Health에 Redis가 필요하지 않다. Redis 컨테이너 상태는 아래 redis 서비스의 Health와 verify.sh가 따로 확인한다.
       MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
       # PR #402: 인덱스 동기화·운영 검증 전에는 반드시 기존 MySQL 검색 유지.
       PRODUCT_SEARCH_ENABLED: "false"
       JWT_SECRET_BASE64: ${JWT_SECRET_BASE64}
@@ -76,8 +78,10 @@ services:
       AI_PROFILE_BATCH_SIZE: ${AI_PROFILE_BATCH_SIZE:-100}
       AI_PROFILE_RECOVERY_BATCH_SIZE: ${AI_PROFILE_RECOVERY_BATCH_SIZE:-50}
       AI_PROFILE_DISPATCH_INTERVAL: ${AI_PROFILE_DISPATCH_INTERVAL:-1m}
+      # AI 프로파일링 호출은 별도 플래그로 계속 끈다(AI 서비스 준비 전).
       AI_PROFILE_SCHEDULING_ENABLED: "false"
-      SCHEDULING_ENABLED: "false"
+      # 전역 스케줄러 스위치. false이면 알림 SSE 하트비트와 Outbox, 선물 만료, 결제 정합 등 모든 @Scheduled가 꺼진다. 개발 서버 SSE에 필요해 true로 둔다.
+      SCHEDULING_ENABLED: "true"
       SPRING_JPA_SHOW_SQL: "false"
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=25
       SENTRY_DSN: ${SENTRY_DSN:-}
