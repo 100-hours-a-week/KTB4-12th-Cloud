@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "name",
+    "component",
+    "replicas",
+    "image",
+    "database",
+    "service",
+    "env",
+    "serviceAccount"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
+    "component": {
+      "enum": [
+        "main",
+        "payment"
+      ]
+    },
+    "replicas": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "repository",
+        "digest",
+        "mainRuntimeCompatible"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "mainRuntimeCompatible": {
+          "type": "boolean"
+        },
+        "pullPolicy": {
+          "enum": [
+            "IfNotPresent",
+            "Always",
+            "Never"
+          ]
+        }
+      }
+    },
+    "database": {
+      "type": "object",
+      "required": [
+        "schemaReviewed"
+      ],
+      "properties": {
+        "schemaReviewed": {
+          "type": "boolean"
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "required": [
+        "type",
+        "port"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "ClusterIP",
+            "NodePort"
+          ]
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "secretEnvFrom": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "secretEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "secretName",
+          "key"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "secretName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "required": [
+        "name",
+        "automountServiceAccountToken"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "automountServiceAccountToken": {
+          "type": "boolean"
+        }
+      }
+    },
+    "redisAccess": {
+      "type": "boolean"
+    },
+    "elasticsearchCA": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "secretName",
+        "secretKey"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "secretName": {
+          "type": "string"
+        },
+        "secretKey": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,22 @@
+name: payment-server
+component: payment
+image:
+  digest: sha256:c054202626d7a7ae3208aea90f06d4d3194c772a315cb4fd2b891a03e96eccc4
+serviceAccount:
+  name: default
+  automountServiceAccountToken: false
+service:
+  type: ClusterIP
+  port: 8090
+secretEnvFrom:
+  - payment-runtime
+redisAccess: false
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 1536Mi
+env:
+  PAYMENT_SERVER_PORT: "8090"
