@@ -1,0 +1,6 @@
+apiVersion: v2
+name: seonjalal-backend
+description: Main 도메인별 서비스와 Payment의 공통 배포 템플릿
+type: application
+version: 0.1.0
+appVersion: "3.0.0"

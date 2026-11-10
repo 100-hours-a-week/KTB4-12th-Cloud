@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backend.name" . }}-runtime
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+data:
+  {{- toYaml .Values.env | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backend.name" . }}-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+data:
+  start.sh: |
+    {{- .Files.Get "files/start.sh" | nindent 4 }}
+  rds-ca.pem: |
+    {{- required "검증한 RDS 공개 CA 번들 필요" (.Files.Get "files/rds-ca.pem") | nindent 4 }}

@@ -1,0 +1,2 @@
+# 공통 Main 이미지·설정 사용, Service·Deployment 이름만 구분
+name: notification-service
