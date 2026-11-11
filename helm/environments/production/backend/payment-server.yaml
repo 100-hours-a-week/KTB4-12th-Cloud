@@ -1,5 +1,8 @@
 name: payment-server
 component: payment
+# main 머지 후 수동 Sync 없는 반영 확인용. 검증 후 이 블록 제거로 되돌림 확인.
+deploymentAnnotations:
+  seonjalal.io/gitops-verification: "main-auto-sync-20261112-01"
 image:
   # 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
   digest: sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a

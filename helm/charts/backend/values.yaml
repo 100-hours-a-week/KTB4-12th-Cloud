@@ -1,6 +1,8 @@
 # 서비스별 values에서 이름·이미지·설정을 덮어씁니다.
 name: ""
 component: main
+# Deployment 자체의 설명용 메타데이터. Pod template annotation과 별도입니다.
+deploymentAnnotations: {}
 
 # 준비 단계에는 JVM을 실행하지 않습니다. 기본 운영 목표는 서비스별 2개입니다.
 replicas: 0
