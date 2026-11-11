@@ -7,15 +7,17 @@ on:
       - 'scripts/validate-v3-gitops.rb'
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
+      - 'scripts/validate-v3-monitoring.rb'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
-    branches: [main, develop, feat/v3-argocd]
+    branches: [main, develop, feat/v3-argocd, feat/v3-monitoring-discord]
     paths:
       - 'argocd/**'
       - 'helm/**'
       - 'scripts/validate-v3-gitops.rb'
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
+      - 'scripts/validate-v3-monitoring.rb'
       - '.github/workflows/validate-v3-gitops.yml'
   workflow_dispatch:
 permissions:
@@ -37,3 +39,12 @@ jobs:
         run: |
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
+          ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
+      # 참조 대상 접속 없이 Agent 모드의 실제 Prometheus 문법 검사.
+      - name: Validate Prometheus Agent config
+        run: |
+          chmod 644 "$RUNNER_TEMP/v3-agent/prometheus.yml"
+          docker run --rm --read-only --network none \
+            --volume "$RUNNER_TEMP/v3-agent:/check:ro" \
+            --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
+            check config --syntax-only --agent /check/prometheus.yml

@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.scrapeInterval }}
+      scrape_timeout: {{ .Values.scrapeTimeout }}
+      external_labels:
+        cluster: {{ .Values.cluster | quote }}
+        environment: {{ .Values.environment | quote }}
+        collector: {{ .Release.Name | quote }}
+    remote_write:
+      - url: {{ .Values.remoteWrite.url | quote }}
+        remote_timeout: 10s
+        queue_config:
+          capacity: 2500
+          min_shards: 1
+          max_shards: 2
+    scrape_configs:
+      # /metrics 기본 수집은 노드·메모리·디스크 지표 보존을 위해 유지.
+      - job_name: rabbitmq
+        sample_limit: {{ .Values.sampleLimit }}
+        kubernetes_sd_configs: &rabbitmq_discovery
+          - role: pod
+            namespaces:
+              names: [{{ .Release.Namespace | quote }}]
+        relabel_configs: &rabbitmq_relabel
+          - source_labels: [__meta_kubernetes_pod_name]
+            regex: rabbitmq-server-[0-9]+
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            regex: rabbitmq
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: prometheus
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            replacement: "${1}:15692"
+            target_label: instance
+      - job_name: rabbitmq-queues
+        sample_limit: {{ .Values.sampleLimit }}
+        metrics_path: /metrics/detailed
+        params:
+          vhost: [{{ .Values.vhost | quote }}]
+          family: [queue_coarse_metrics, queue_consumer_count, queue_delivery_metrics, exchange_metrics]
+          # 결제10개·프로파일링4개·신고4개 이름만. 업무 토폴로지 생성 없음.
+          queue: ['^(gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.]approval[.]recovery|payment[.]cancellation[.]recovery)[.](q|dlq)|profiling[.](request|result)([.]failed)?|Report[.](discord|sheets|retry|dlq))$']
+        kubernetes_sd_configs: *rabbitmq_discovery
+        relabel_configs: *rabbitmq_relabel
+      - job_name: rabbitmq-dlq-age
+        sample_limit: {{ .Values.sampleLimit }}
+        metrics_path: /metrics/detailed
+        params:
+          vhost: [{{ .Values.vhost | quote }}]
+          # 상세 queue_metrics는 요청한 결제 DLQ5개에 한정.
+          family: [queue_metrics]
+          queue: ['^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.]approval[.]recovery|payment[.]cancellation[.]recovery)[.]dlq$']
+        kubernetes_sd_configs: *rabbitmq_discovery
+        relabel_configs: *rabbitmq_relabel
+      - job_name: prometheus-agent
+        static_configs:
+          - targets: ["127.0.0.1:9091"]

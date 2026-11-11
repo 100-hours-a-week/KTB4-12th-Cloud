@@ -1,0 +1,85 @@
+{{- if ne .Release.Namespace "production" -}}
+{{- fail "수집기는 production namespace Pod만 조회하도록 검토됨" -}}
+{{- end -}}
+{{- if eq (int .Values.replicas) 1 -}}
+{{- if not .Values.receiverReviewed -}}
+{{- fail "실행 전 receiver·출발지 SG·네트워크·자원·되돌림 검토 필요" -}}
+{{- end -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest) -}}
+{{- fail "실행 전 검증한 Prometheus 이미지 Digest 필요" -}}
+{{- end -}}
+{{- if contains ".invalid" .Values.remoteWrite.url -}}
+{{- fail "예시 주소 기동 금지" -}}
+{{- end -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {app.kubernetes.io/name: {{ .Release.Name }}, app.kubernetes.io/part-of: seonjalal-observability}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 2
+  # 교체 중 동일 target 중복 전송 방지. 수집 공백은 감수.
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: {{ .Release.Name }}, app.kubernetes.io/part-of: seonjalal-observability}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: agent
+          {{- if .Values.image.digest }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          {{- else }}
+          image: "{{ .Values.image.repository }}:v3.15.0"
+          {{- end }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --agent
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.agent.path=/prometheus
+            - --storage.agent.retention.max-time=2h
+            - --web.listen-address=0.0.0.0:9091
+          ports: [{name: agent-http, containerPort: 9091}]
+          startupProbe:
+            httpGet: {path: /-/ready, port: agent-http}
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: {path: /-/ready, port: agent-http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: agent-http}
+            periodSeconds: 15
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/prometheus, readOnly: true}
+            - {name: wal, mountPath: /prometheus}
+      volumes:
+        - name: config
+          configMap: {name: {{ .Release.Name }}}
+        - name: wal
+          # 일시 전송 버퍼. Pod 재생성 시 미전송 표본이 사라질 수 있음.
+          emptyDir: {sizeLimit: {{ .Values.walSizeLimit }}}
