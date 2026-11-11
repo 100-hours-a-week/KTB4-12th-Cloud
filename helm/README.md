@@ -43,7 +43,7 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - Main은 추가로 `image.mainRuntimeCompatible: true` 필요
 - 위 두 값은 확인 결과를 기록하는 수동 선언. 코드·DB·실제 접속을 자동 검증하는 기능이 아님
 - 공유 운영 DB에 V3.0.1 필수 Migration 16개 적용 및 신규 13테이블 앱 DML 권한 확인 후 common.yaml의 schemaReviewed: true 반영
-- V45·V46은 V2가 사용하는 SSE 구조 변경·삭제이므로 V2 종료 후 별도 적용. 현재 최고 이력 V54가 모든 중간 버전 적용을 의미하지 않음
+- V45·V46은 V2가 사용하는 SSE 구조 변경·삭제이므로 V2 종료 후 별도 적용. Java Migration V51도 구 HTTP 프로파일링 인스턴스 종료·진행 요청 정리 후 별도 적용. 이번 실행은 SQL 16개이며 Java V51은 포함하지 않음. 현재 최고 이력 V54가 모든 중간 버전 적용을 의미하지 않음
 - 앱의 Flyway는 비활성 유지. schemaReviewed는 운영 검토 기록이며 데이터 정합성·무중단이나 향후 스키마 변경의 자동 승인이 아님
 - SecretStore·ExternalSecret·ServiceAccount·IRSA는 기존 준비 리소스 참조. 이 Chart에서 재생성하지 않음
 - S3 인증은 Java STS 모듈·ServiceAccount·IAM·STS 네트워크 연결까지 갖춰야 완료
@@ -57,6 +57,7 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - limits Main 1CPU/2Gi, Payment 1CPU/1536Mi: requests와 별도 실행 상한이며 측정된 최적값이 아님
 - CPU requests 합계: 기본 12 Pod × 0.5CPU = 6CPU. Redis·RabbitMQ·시스템 자원은 별도 합산
 - 앱 Hikari max 5/minIdle 1: 기본 12 Pod의 최대 연결 수 60개로 제한하는 초기 예산
+- Hikari 환경변수는 MAXIMUMPOOLSIZE·MINIMUMIDLE·CONNECTIONTIMEOUT 사용. 속성명의 하이픈은 제거하고 점만 밑줄로 변환. CONNECTION_TIMEOUT은 connection.timeout 경로로 해석되어 바인딩 중 getConnection 호출 가능
 - V2·AI·관리 연결, Rolling 중 추가 Pod는 60개에 포함되지 않으므로 실제 DB max_connections 확인 필요
 - 연결 풀이 부족하면 요청 대기가 증가할 수 있음. 처리량 보장값이 아니며 지표·부하테스트로 조정
 - 3AZ spread와 노드 anti-affinity 적용. Pod의 운영 배치 조건이며 AZ 장애 시 처리량 보장 검증과 구분
