@@ -1,6 +1,8 @@
 # V3 결제 RabbitMQ 대시보드
 
-`rabbitmq.json`은 별도 UID `seonjalal-v3-rabbitmq`의 브로커/큐 전용 화면. 노드별 스크랩 up·메모리·디스크·수집 대상 큐의 ready/unacked·Consumer·재전달률 제공. 기존 Agent 수집 범위만 조회하며 quorum 상태·전체 큐 존재·실제 업무 성공 보장으로 확대 해석 금지. Redis 전용 화면은 exporter/수집 경로 확인 후 별도 준비.
+`rabbitmq.json`은 별도 UID `seonjalal-v3-rabbitmq`의 브로커/큐 전용 화면. 노드별 스크랩 up·메모리·디스크·수집 대상 큐의 ready/unacked·Consumer·재전달률 제공. 기존 Agent 수집 범위만 조회하며 quorum 상태·전체 큐 존재·실제 업무 성공 보장으로 확대 해석 금지.
+
+`redis.json`은 별도 UID `seonjalal-v3-redis`의 Redis/Sentinel 전용 화면. 연결·메모리·명령 처리량·클라이언트·적중률·eviction·복제 offset·Sentinel 감시/quorum/TILT 제공. exporter 배포·Agent redis.enabled 활성화·중앙 실제 표본 확인 후 사용. maxmemory=0 및 hit+miss rate=0은 비율 계산에서 제외. Pod 메모리 상한·업무 RPS·HTTP 성공률·초 단위 복제 지연과 구분. 실제 failover/정합성 시험은 수행하지 않음. 집계 전 원본 노드별 지표를 보존해 primary/replica를 이중 합산하지 않음.
 
 원본: [BE 5a32a6aa의 결제 MQ 대시보드](https://github.com/100-hours-a-week/KTB4-12th-BE/blob/5a32a6aa638e1f78d056a112bc311bf08853a3dd/monitoring/grafana/dashboards/gift-payment-rabbitmq.json).
 

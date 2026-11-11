@@ -70,3 +70,29 @@ data:
       - job_name: prometheus-agent
         static_configs:
           - targets: ["127.0.0.1:9091"]
+{{- if .Values.redis.enabled }}
+{{- range $component := list "data" "sentinel" }}
+      - job_name: {{ if eq $component "data" }}redis{{ else }}redis-sentinel{{ end }}
+        sample_limit: 5000
+        kubernetes_sd_configs: *rabbitmq_discovery
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            regex: v3-redis-exporter
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_seonjalal_io_redis_component]
+            regex: {{ $component }}
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: metrics
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_phase]
+            regex: Running
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_seonjalal_io_redis_target]
+            target_label: instance
+          - source_labels: [__meta_kubernetes_pod_label_seonjalal_io_redis_group]
+            target_label: redis_group
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+{{- end }}
+{{- end }}

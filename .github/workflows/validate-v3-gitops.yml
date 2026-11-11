@@ -53,6 +53,8 @@ jobs:
           ruby scripts/validate-v3-gitops.rb
           ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
       # 모의 Docker로 단일 TSDB writer·복구 순서 검사. 실제 서비스/네트워크 호출 없음.
+      - name: Validate Redis dashboard JSON
+        run: python3 -m json.tool operations/monitoring/grafana/redis.json > /dev/null
       - name: Validate Prometheus transition safety
         run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_v3_prometheus_transition.py -v
       # 참조 대상 접속 없이 Agent 모드의 실제 Prometheus 문법 검사.

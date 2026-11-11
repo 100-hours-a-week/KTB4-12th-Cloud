@@ -72,6 +72,48 @@ begin
     positive + ['--set', 'image.digest='],
     positive + ['--set', 'remoteWrite.url=http://monitoring.internal.invalid:9090/api/v1/write']
   ].each { |args| check(!render(*args)[2].success?, '실행 가드 우회 발견') }
+  # Redis를 켜도 기존 RabbitMQ 수집 계약은 그대로 유지해야 함.
+  redis_docs = objects('--set', 'redis.enabled=true')
+  redis_config = redis_docs.find { |o| o['kind'] == 'ConfigMap' }.fetch('data').fetch('prometheus.yml')
+  redis_jobs = YAML.safe_load(redis_config, aliases: true).fetch('scrape_configs')
+  check(redis_jobs.take(4) == jobs, 'Redis 활성화로 기존 job 변경')
+  check(redis_jobs.drop(4).map { |j| j['job_name'] } == %w[redis redis-sentinel], 'Redis job 범위 변경')
+  redis_jobs.drop(4).each do |j|
+    check(j['relabel_configs'].any? { |r| r['regex'] == 'v3-redis-exporter' && r['action'] == 'keep' },
+          'exporter 외 Pod 수집')
+  end
+  exporter_chart = 'helm/charts/redis-exporter'
+  exporter_render = lambda do |*args|
+    Open3.capture3('helm', 'template', 'v3-redis-exporter', exporter_chart,
+                  '--namespace', 'production', *args, chdir: ROOT)
+  end
+  exporter_out, _, exporter_status = exporter_render.call
+  check(exporter_status.success?, 'Redis exporter 준비 렌더 실패')
+  exporter_docs = YAML.load_stream(exporter_out).compact
+  check(exporter_docs.group_by { |o| o['kind'] }.transform_values(&:length) == {'Deployment' => 7, 'NetworkPolicy' => 7},
+        'Redis 업무 리소스/RBAC/Service 변경 또는 대상7개 누락')
+  exporters = exporter_docs.select { |o| o['kind'] == 'Deployment' }
+  check(exporters.all? { |o| o.dig('spec', 'replicas') == 0 }, 'exporter 자동 기동')
+  exporters.each do |o|
+    pod = o.dig('spec', 'template', 'spec')
+    check(pod['automountServiceAccountToken'] == false, 'exporter Kubernetes 인증 부여')
+    container = pod.fetch('containers').fetch(0)
+    env = container.fetch('env')
+    check(env.map { |e| e['name'] } == %w[REDIS_ADDR REDIS_PASSWORD], '불필요한 인증/환경변수 주입')
+    ref = env[1].dig('valueFrom', 'secretKeyRef')
+    check(%w[redis-auth redis-product redis-sentinel].include?(ref['name']) && ref['key'] == 'password',
+          '검토되지 않은 Secret 참조')
+    check(!env[0].fetch('value').include?('@'), 'Redis URL에 자격 포함')
+    check(container.fetch('args').include?('--disable-exporting-key-values'), '키 값 노출 방지 누락')
+    check(container.fetch('args').include?('--disable-scrape-endpoint'), '임의 대상 scrape endpoint 노출')
+  end
+  exporter_launch = ['--set', 'replicas=1', '--set', 'launchReviewed=true',
+                     '--set', "image.digest=sha256:#{'1' * 64}"]
+  check(exporter_render.call(*exporter_launch)[2].success?, 'exporter 승인 조합 거부')
+  [ ['--set', 'replicas=1'], exporter_launch + ['--set', 'launchReviewed=false'],
+    exporter_launch + ['--set', 'replicas=2'] ].each do |args|
+    check(!exporter_render.call(*args)[2].success?, 'exporter 실행 가드 우회')
+  end
   if ARGV.any?
     check(ARGV.length == 2 && ARGV[0] == '--write-config', '사용법: --write-config LOCAL_PATH')
     destination = File.expand_path(ARGV[1])
@@ -82,6 +124,7 @@ begin
   puts 'MONITORING_PLAN_CHECK: resources=5 / initialReplicas=0 / Pod discovery read-only'
   puts 'QUEUE_FILTER_CHECK: payment=10 / profiling=4 / report=4 / detailed queue_metrics=5 DLQs only'
   puts 'LAUNCH_GUARD_CHECK: unreviewed / missing Digest / example URL / duplicate Agent rejected'
+  puts 'REDIS_BOUNDARY_CHECK: 7 isolated exporters / no database resources or RBAC / optional jobs preserve existing scrapes'
   puts 'READ_ONLY_STATIC: 실제 수집·remote_write·Discord 성공은 미검증'
 rescue StandardError => e
   warn e.message

@@ -10,6 +10,9 @@ remoteWrite:
 cluster: seonjalal-v3
 environment: production
 vhost: gift
+redis:
+  # Exporter 배포 검증 후 명시적으로 활성화. 기존 RabbitMQ 수집 기본값 보존.
+  enabled: false
 scrapeInterval: 15s
 scrapeTimeout: 5s
 sampleLimit: 15000
