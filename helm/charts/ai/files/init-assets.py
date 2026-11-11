@@ -1,4 +1,5 @@
 """고정 Manifest의 자산만 S3에서 읽어 크기·SHA256 확인 후 공유 볼륨 초기화."""
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -20,7 +21,7 @@ def main():
     client = boto3.client("s3", region_name="ap-northeast-2", config=Config(
         connect_timeout=10, read_timeout=60, retries={"mode": "standard", "max_attempts": 3}))
     response = client.get_object(Bucket=BUCKET, Key=PREFIX + "manifest.json")
-    with response["Body"] as stream:
+    with closing(response["Body"]) as stream:
         raw = stream.read(8 * 1024 * 1024 + 1)
     if len(raw) > 8 * 1024 * 1024 or hashlib.sha256(raw).hexdigest() != MANIFEST_SHA256:
         raise ValueError("manifest integrity mismatch")
@@ -40,7 +41,8 @@ def main():
             raise ValueError("asset content length mismatch")
         digest = hashlib.sha256()
         size = 0
-        with response["Body"] as stream, temporary.open("wb") as output:
+        # StreamingBody.__enter__는 내부 HTTP 스트림을 반환하므로 closing으로 SDK 객체 유지.
+        with closing(response["Body"]) as stream, temporary.open("wb") as output:
             for chunk in stream.iter_chunks(chunk_size=1024 * 1024):
                 size += len(chunk)
                 if size > item["bytes"]:
