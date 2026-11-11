@@ -10,6 +10,9 @@ on:
       - 'scripts/validate-v3-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
       - 'scripts/prepare-v3-prometheus.py'
+      - 'scripts/prepare-v3-prometheus-transition.py'
+      - 'scripts/lib/v3_prometheus_transition.py'
+      - 'scripts/test_v3_prometheus_transition.py'
       - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
@@ -23,6 +26,9 @@ on:
       - 'scripts/validate-v3-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
       - 'scripts/prepare-v3-prometheus.py'
+      - 'scripts/prepare-v3-prometheus-transition.py'
+      - 'scripts/lib/v3_prometheus_transition.py'
+      - 'scripts/test_v3_prometheus_transition.py'
       - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   workflow_dispatch:
@@ -46,6 +52,9 @@ jobs:
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
           ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
+      # 모의 Docker로 단일 TSDB writer·복구 순서 검사. 실제 서비스/네트워크 호출 없음.
+      - name: Validate Prometheus transition safety
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_v3_prometheus_transition.py -v
       # 참조 대상 접속 없이 Agent 모드의 실제 Prometheus 문법 검사.
       - name: Validate Prometheus Agent config
         run: |

@@ -28,3 +28,17 @@ Mac: `python3 scripts/prepare-v3-prometheus.py --instance-id <관측 EC2 ID>`.
 기존 확인 이미지 Digest·640MiB/0.75CPU·volume·loopback 게시 조건이 달라졌으면 중단. 수집 job과 global 동등성 검사 후 후보 작성, 동일 이미지 promtool로 config/rules/unit tests 검사. 실제 Prometheus 재기동은 포함하지 않음.
 
 근거: [receiver 실행 옵션](https://prometheus.io/docs/prometheus/latest/command-line/prometheus/), [경고 규칙 테스트](https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/).
+
+## 전환·복구 도구
+
+`prepare-v3-prometheus-transition.py`는 검사 완료 디렉터리·후보 SHA256·대상 EC2를 지정해 SSM 요청 생성. 기본 `--mode check`는 Docker 조회와 root 전용 후보 생성 요청만 준비하며 기존 프로세스·활성 설정은 변경하지 않음.
+
+- `check`: 기존 컨테이너 ID/Config/HostConfig/Mounts·활성 파일·후보/규칙 해시를 대조. 기준이 바뀌면 중단.
+- `apply`: 해당 변경 범위 승인 후 요청 생성에 `--approved` 필요. 기존 컨테이너 정지→이름 변경·보존→검증된 설정 교체→동일 TSDB 볼륨으로 새 컨테이너 생성·시작 순서. 동시 TSDB writer 금지.
+- 기존 Env·Entrypoint·명시적 실행 옵션·HostConfig·prometheus alias 보존. 일회성 컨테이너 ID hostname/alias는 새 컨테이너로 갱신. receiver 옵션·private IP 게시·규칙 RO 마운트·추적 라벨만 추가.
+- 준비 상태는 0.5초 간격으로 최대90초 확인. 성공 후 실행 전후 정규화 설정·receiver flag·규칙5개·같은 고정 시각의 `up` 표본·볼륨·자원·포트 확인.
+- 실패 시 새 컨테이너 중지·별도 이름으로 보존→원본 설정 복원→원래 컨테이너 이름/실행 복구. 다른 변경의 컨테이너는 중지하지 않음. 컨테이너·볼륨 삭제 없음.
+- 프로세스 강제 종료·SSM timeout·호스트 장애로 자동복구 코드 자체가 실행되지 않을 수 있음. 수동 `--mode rollback --approved` 요청 경로 별도 제공. 원본 컨테이너·백업 디렉터리는 안정화 전 삭제 금지.
+- 전환 시각·단계·단조시계 경과는 서버 root 전용 `transition-apply.json`에 기록. `stopRequestToReadySeconds`는 정지 요청부터 준비 상태 첫 관측까지의 창이며 실제 요청 실패 구간의 정밀 측정값 아님. `stopRequestToVerificationSeconds`는 후속 검사까지 포함. SSM 전체 실행시간·업무 API 중단시간과 구분.
+- 과거 `up` 표본 비교는 특정 시각의 일부 시계열 보존 확인이며 TSDB 전체 이력의 완전성 검증 아님. 자동복구 로컬 테스트는 모의 Docker이며 실제 호스트 장애 복구 보장 아님.
+- 내부9090을 게시하면 remote_write뿐 아니라 Prometheus 조회 API도 EKS 노드 SG 범위에서 접근 가능. HTTP·무인증 초기 경로의 범위·트레이드오프를 실제 적용 전 확인. 사용자 승인 없이 SG 변경·실제 전환 실행 금지.
