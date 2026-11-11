@@ -1,0 +1,6 @@
+apiVersion: v2
+name: seonjalal-ai
+description: Shared-network AI runtime for Search, Profiler and Chat
+type: application
+version: 0.1.0
+appVersion: ae5ce38

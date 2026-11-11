@@ -35,14 +35,25 @@ helm template member-service helm/charts/backend --namespace production \
 다른 Main 서비스는 마지막 values와 Release 이름을 동일 서비스 이름으로 변경.
 Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사용하지 않음.
 
+### 자동 작업 실행 주체
+
+- `recommendation-service.yaml`은 공통 스케줄링·프로파일링 MQ 발행·결과 소비 활성화 설정 포함. 별도 임시 values 파일 없이 마지막에 병합
+- 공통 스케줄링은 프로파일링 외 알림 Outbox·상품 조회 집계·결제 재조정·야간 만료/정리 작업도 포함. 나머지 Main Release는 비활성 유지
+- 현재 작업 실행 주체는 recommendation-service 1개 Pod. 이 Release의 복제 수 증가 전 작업별 중복 실행 방지 조건 별도 검토 필요
+- 최초 활성화 전 기존 V2 작업 중지 및 진행 중 HTTP 프로파일링 요청 인계 확인 필요
+- `backend-runtime` Secret은 공통 인증 10개와 SMTP 7개 키 포함. SMTP 값은 Secret에서 주입하고 저장소에 기록하지 않음
+- `replicas: 0` 기본값 유지. 실제 기동 시 `--set replicas=1` 필요
+
 ## 준비 상태와 실행 조건
 
 - 현재 `replicas: 0`. 기본 운영 목표는 서비스별 2개이며 현재 실행 중이라는 의미가 아님
-- Main 3.0.0 Digest는 이미 발행된 이미지의 참조값. Sentinel·STS가 반영된 새 Digest로 교체 필요
+- Main·Payment 3.0.1의 사용자 확인 ECR Image Index Digest로 고정. Main은 Sentinel 코드·STS 빌드 확인 기준으로 이미지 조건 반영, 실제 EKS 연결 검증은 별도
 - `replicas > 0`은 `database.schemaReviewed: true` 필요
 - Main은 추가로 `image.mainRuntimeCompatible: true` 필요
 - 위 두 값은 확인 결과를 기록하는 수동 선언. 코드·DB·실제 접속을 자동 검증하는 기능이 아님
-- DB 스키마 검토 후 필요한 Migration을 별도 실행하고 앱의 Flyway는 비활성 유지
+- 공유 운영 DB에 V3.0.1 필수 Migration 16개 적용 및 신규 13테이블 앱 DML 권한 확인 후 common.yaml의 schemaReviewed: true 반영
+- V45·V46은 V2가 사용하는 SSE 구조 변경·삭제이므로 V2 종료 후 별도 적용. Java Migration V51도 구 HTTP 프로파일링 인스턴스 종료·진행 요청 정리 후 별도 적용. 이번 실행은 SQL 16개이며 Java V51은 포함하지 않음. 현재 최고 이력 V54가 모든 중간 버전 적용을 의미하지 않음
+- 앱의 Flyway는 비활성 유지. schemaReviewed는 운영 검토 기록이며 데이터 정합성·무중단이나 향후 스키마 변경의 자동 승인이 아님
 - SecretStore·ExternalSecret·ServiceAccount·IRSA는 기존 준비 리소스 참조. 이 Chart에서 재생성하지 않음
 - S3 인증은 Java STS 모듈·ServiceAccount·IAM·STS 네트워크 연결까지 갖춰야 완료
 - AI 주소는 향후 생성할 `ai-chat`·`ai-profiler` Service 이름. 현재 AI 배포 완료가 아님
@@ -55,6 +66,7 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - limits Main 1CPU/2Gi, Payment 1CPU/1536Mi: requests와 별도 실행 상한이며 측정된 최적값이 아님
 - CPU requests 합계: 기본 12 Pod × 0.5CPU = 6CPU. Redis·RabbitMQ·시스템 자원은 별도 합산
 - 앱 Hikari max 5/minIdle 1: 기본 12 Pod의 최대 연결 수 60개로 제한하는 초기 예산
+- Hikari 환경변수는 MAXIMUMPOOLSIZE·MINIMUMIDLE·CONNECTIONTIMEOUT 사용. 속성명의 하이픈은 제거하고 점만 밑줄로 변환. CONNECTION_TIMEOUT은 connection.timeout 경로로 해석되어 바인딩 중 getConnection 호출 가능
 - V2·AI·관리 연결, Rolling 중 추가 Pod는 60개에 포함되지 않으므로 실제 DB max_connections 확인 필요
 - 연결 풀이 부족하면 요청 대기가 증가할 수 있음. 처리량 보장값이 아니며 지표·부하테스트로 조정
 - 3AZ spread와 노드 anti-affinity 적용. Pod의 운영 배치 조건이며 AZ 장애 시 처리량 보장 검증과 구분
@@ -72,6 +84,13 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - ConfigMap 변경 시 checksum으로 Pod template 갱신. Secret 값 변경은 환경변수를 자동 갱신하지 않으므로 명시적 Pod 교체 필요
 - CA Secret volume 갱신 후에도 클라이언트가 재로딩한다고 가정하지 않고 인증서 교체 시 Pod 교체 필요
 - Argo CD 도입 후 같은 앱에 수동 Helm 배포와 Argo CD Sync를 병행하지 않음
+
+## AI 실행 구성
+
+- AI 전용 Chart: `helm/charts/ai`, 운영 설정: `helm/environments/production/ai/runtime.yaml`
+- Search·Profiler·Chat 공유 Pod, 기존 AI Spot 풀 사용. 모델 초기화 및 준비 조건은 [AI 실행 안내](charts/ai/README.md) 참조
+- 현재 `replicas: 0`/`launchApproved: false`. Modal v3·OpenRouter 폴백은 팀 확인 반영, 이 파일 추가는 실제 AI 배포 완료가 아님
+- 단일 Pod 업데이트·Spot 중단 시 AI 일시 중단 가능. MQ 동시성 제한과 복구 특성을 검토한 뒤 명시적 기동
 
 ## 근거
 

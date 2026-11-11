@@ -1,0 +1,133 @@
+{{- include "ai.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    {{- include "ai.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 900
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "ai.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ai.labels" . | nindent 8 }}
+      annotations:
+        checksum/launcher: {{ .Files.Get "files/start.py" | sha256sum }}
+        checksum/assets-bootstrap: {{ printf "%s\n%s" (.Files.Get "files/init-assets.py") (.Files.Get "files/rds-ca.pem") | sha256sum }}
+        checksum/settings: {{ toJson .Values | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccountName }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      initContainers:
+        - name: assets-init
+          image: "{{ .Values.imageRepositoryPrefix }}-migrate@{{ .Values.images.migrate }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [python, /bootstrap/init-assets.py]
+          env:
+            - {name: ASSET_BUCKET, value: {{ .Values.assets.bucket | quote }}}
+            - {name: ASSET_PREFIX, value: {{ .Values.assets.prefix | quote }}}
+            - {name: ASSET_MANIFEST_SHA256, value: {{ .Values.assets.manifestSha256 | quote }}}
+            - {name: AWS_REGION, value: ap-northeast-2}
+            - {name: AWS_DEFAULT_REGION, value: ap-northeast-2}
+            - {name: AWS_STS_REGIONAL_ENDPOINTS, value: regional}
+            - {name: AWS_EC2_METADATA_DISABLED, value: "true"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml .Values.initResources | nindent 12 }}
+          volumeMounts:
+            - {name: bootstrap, mountPath: /bootstrap, readOnly: true}
+            - {name: shared, mountPath: /shared}
+            - {name: tmp-init, mountPath: /tmp}
+      containers:
+        {{- range $role := list "search" "profiler" "chat" }}
+        {{- $settings := index $.Values $role }}
+        - name: {{ $role }}
+          image: "{{ $.Values.imageRepositoryPrefix }}-{{ $role }}@{{ index $.Values.images $role }}"
+          imagePullPolicy: {{ $.Values.imagePullPolicy }}
+          command: [python, /launcher/start.py, {{ $role }}]
+          ports:
+            - name: {{ $role }}
+              containerPort: {{ if eq $role "search" }}8000{{ else if eq $role "profiler" }}8001{{ else }}7860{{ end }}
+          envFrom:
+            - secretRef: {name: {{ $settings.secretName }}}
+          env:
+            {{- range $key, $value := mergeOverwrite (deepCopy $.Values.env) $settings.env }}
+            - name: {{ $key }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            - name: PORT
+              value: {{ if eq $role "search" }}"8000"{{ else if eq $role "profiler" }}"8001"{{ else }}"7860"{{ end }}
+            {{- if eq $role "profiler" }}
+            - name: PROFILING_TAG_ENGINE
+              value: {{ $.Values.profiler.tagEngine | quote }}
+            {{- if eq $.Values.profiler.tagEngine "v3" }}
+            {{- range $key := list "PROFILING_V3_URL" "PROFILING_V3_API_KEY" "PROFILING_V3_PROXY_KEY" "PROFILING_V3_PROXY_SECRET" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.profiler.modalSecretName | quote }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml $settings.resources | nindent 12 }}
+          startupProbe:
+            exec:
+              command: [python, -m, integration.containers.health, {{ $role }}]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            exec:
+              command: [python, -m, integration.containers.health, {{ $role }}]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - {name: launcher, mountPath: /launcher, readOnly: true}
+            - {name: shared, mountPath: /shared, readOnly: true}
+            {{- if ne $role "chat" }}
+            - {name: search-runtime, mountPath: /runtime, readOnly: {{ ne $role "search" }}}
+            {{- end }}
+            - {name: tmp-{{ $role }}, mountPath: /tmp}
+        {{- end }}
+      volumes:
+        - name: launcher
+          configMap: {name: {{ .Values.name }}-launcher}
+        - name: bootstrap
+          configMap: {name: {{ .Values.bootstrapConfigMap }}}
+        - name: shared
+          emptyDir: {sizeLimit: 512Mi}
+        - name: search-runtime
+          emptyDir: {sizeLimit: 1Gi}
+        {{- range $role := list "init" "search" "profiler" "chat" }}
+        - name: tmp-{{ $role }}
+          emptyDir: {sizeLimit: 128Mi}
+        {{- end }}

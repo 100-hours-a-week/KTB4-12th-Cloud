@@ -1,7 +1,8 @@
 name: payment-server
 component: payment
 image:
-  digest: sha256:c054202626d7a7ae3208aea90f06d4d3194c772a315cb4fd2b891a03e96eccc4
+  # 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
+  digest: sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a
 serviceAccount:
   name: default
   automountServiceAccountToken: false

@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: {{ .Values.project }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  description: V3 BE and AI only; data services and migrations excluded
+  sourceRepos:
+    - {{ .Values.repository | quote }}
+  destinations:
+    - server: {{ .Values.destination.server | quote }}
+      namespace: {{ .Values.destination.namespace | quote }}
+  # Project의 허용 목록이며 Argo CD 설치 자체의 Kubernetes RBAC 축소와는 별개입니다.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: apps, kind: Deployment}
+    - {group: "", kind: ConfigMap}
+    - {group: "", kind: Service}
+    - {group: policy, kind: PodDisruptionBudget}

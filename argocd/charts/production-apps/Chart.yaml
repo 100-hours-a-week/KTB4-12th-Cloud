@@ -1,0 +1,5 @@
+apiVersion: v2
+name: seonjalal-production-apps
+description: Existing V3 application adoption and GitOps delivery definitions
+type: application
+version: 0.1.0

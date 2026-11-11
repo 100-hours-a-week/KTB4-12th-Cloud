@@ -1,0 +1,55 @@
+# 실제 기동에는 운영 values 및 명시적 승인이 모두 필요합니다.
+replicas: 0
+launchApproved: false
+name: ai-runtime
+serviceAccountName: ai-runtime
+bootstrapConfigMap: ai-runtime-assets
+assets:
+  bucket: ""
+  prefix: ""
+  manifestSha256: ""
+imageRepositoryPrefix: ""
+images:
+  migrate: ""
+  search: ""
+  profiler: ""
+  chat: ""
+imagePullPolicy: IfNotPresent
+env: {}
+search:
+  secretName: ai-search-runtime
+  env: {}
+  resources:
+    requests: {cpu: 500m, memory: 1280Mi}
+    limits: {cpu: "1", memory: 2Gi}
+profiler:
+  secretName: ai-profiler-runtime
+  # v2/v3 중 실제 운영 계약 확인 후 지정. 빈 값으로 실행할 수 없습니다.
+  tagEngine: ""
+  modalSecretName: ""
+  env: {}
+  resources:
+    requests: {cpu: 250m, memory: 640Mi}
+    limits: {cpu: "1", memory: 1536Mi}
+chat:
+  secretName: ai-chat-runtime
+  env: {}
+  resources:
+    requests: {cpu: 250m, memory: 896Mi}
+    limits: {cpu: "1", memory: 1536Mi}
+initResources:
+  requests: {cpu: 100m, memory: 128Mi}
+  limits: {cpu: 500m, memory: 384Mi}
+nodeSelector: {}
+tolerations: []
+terminationGracePeriodSeconds: 120
+# 단일 Pod 교체 시 중복 Consumer 8+8개가 생성되지 않도록 교체 순서 제한.
+# replicas=1에서는 업데이트 중 AI 일시 중단 가능. 무중단 배포 보장 설정이 아닙니다.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+services:
+  chat: {name: ai-chat, port: 7860}
+  profiler: {name: ai-profiler, port: 8001}

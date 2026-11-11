@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["replicas", "launchApproved", "assets", "images", "profiler"],
+  "properties": {
+    "replicas": {"type": "integer", "minimum": 0, "maximum": 1},
+    "launchApproved": {"type": "boolean"},
+    "imageRepositoryPrefix": {"type": "string", "minLength": 1},
+    "assets": {
+      "type": "object",
+      "required": ["bucket", "prefix", "manifestSha256"],
+      "properties": {
+        "bucket": {"type": "string", "minLength": 1},
+        "prefix": {"type": "string", "pattern": "^ai/production/[0-9a-f]{40}/$"},
+        "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "images": {
+      "type": "object",
+      "required": ["migrate", "search", "profiler", "chat"],
+      "additionalProperties": false,
+      "properties": {
+        "migrate": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "search": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "profiler": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "chat": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "profiler": {
+      "type": "object",
+      "required": ["tagEngine", "modalSecretName"],
+      "properties": {
+        "tagEngine": {"type": "string", "enum": ["", "v2", "v3"]},
+        "modalSecretName": {"type": "string"},
+        "env": {"type": "object", "additionalProperties": {"type": "string"}}
+      }
+    },
+    "env": {"type": "object", "additionalProperties": {"type": "string"}},
+    "strategy": {
+      "type": "object",
+      "properties": {
+        "type": {"const": "RollingUpdate"},
+        "rollingUpdate": {
+          "type": "object",
+          "properties": {
+            "maxSurge": {"const": 0},
+            "maxUnavailable": {"const": 1}
+          }
+        }
+      }
+    }
+  }
+}

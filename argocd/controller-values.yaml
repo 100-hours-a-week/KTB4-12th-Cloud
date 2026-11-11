@@ -1,0 +1,54 @@
+# 공식 argo-cd Chart 10.17.2 / Argo CD v3.6.1용 초기 설치값.
+# 관리 도구 장애가 앱 중단으로 이어지지 않도록 앱과 설치 수명을 분리합니다.
+global:
+  nodeSelector:
+    kubernetes.io/os: linux
+    workload: system
+  logging:
+    format: json
+configs:
+  cm:
+    # 기존 Helm selector의 instance 라벨을 덮어쓰지 않습니다.
+    application.resourceTrackingMethod: annotation
+    application.instanceLabelKey: argocd.argoproj.io/instance
+    timeout.reconciliation: 120s
+    timeout.reconciliation.jitter: 60s
+    exec.enabled: false
+    admin.enabled: true
+  rbac:
+    policy.default: role:readonly
+  params:
+    server.insecure: false
+controller:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+repoServer:
+  replicas: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: "1", memory: 1Gi}
+server:
+  replicas: 1
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+redis:
+  enabled: true
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {cpu: 500m, memory: 256Mi}
+redis-ha:
+  enabled: false
+dex:
+  enabled: false
+applicationSet:
+  # 7개 고정 Application에는 별도 ApplicationSet 실행 프로세스가 필요하지 않습니다.
+  replicas: 0
+notifications:
+  enabled: false
