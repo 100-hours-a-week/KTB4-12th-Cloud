@@ -76,6 +76,13 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - CA Secret volume 갱신 후에도 클라이언트가 재로딩한다고 가정하지 않고 인증서 교체 시 Pod 교체 필요
 - Argo CD 도입 후 같은 앱에 수동 Helm 배포와 Argo CD Sync를 병행하지 않음
 
+## AI 실행 구성
+
+- AI 전용 Chart: `helm/charts/ai`, 운영 설정: `helm/environments/production/ai/runtime.yaml`
+- Search·Profiler·Chat 공유 Pod, 기존 AI Spot 풀 사용. 모델 초기화 및 준비 조건은 [AI 실행 안내](charts/ai/README.md) 참조
+- 현재 `replicas: 0`/`launchApproved: false`. Modal v3·OpenRouter 폴백은 팀 확인 반영, 이 파일 추가는 실제 AI 배포 완료가 아님
+- 단일 Pod 업데이트·Spot 중단 시 AI 일시 중단 가능. MQ 동시성 제한과 복구 특성을 검토한 뒤 명시적 기동
+
 ## 근거
 
 - [Kubernetes Secret 환경변수](https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/)

@@ -1,0 +1,64 @@
+# 확인한 운영 이미지·Modal v3로 고정. Secret 동기화·배포 검토 전 replicas=0 유지.
+replicas: 0
+launchApproved: false
+assets:
+  bucket: gift-dev-product-images-721744297924-ap-northeast-2-an
+  prefix: ai/production/21b83ac1c288d3c8e1c3336ec8a2537a623cc97b/
+  manifestSha256: 2ec5764fdfc47abf7fcf85baea4c5abf8128afd142f2f45f847841648b94c388
+imageRepositoryPrefix: 721744297924.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/ai
+images:
+  migrate: sha256:3e2a9a4307f7bd3ca7921db8e6c8880ef196c58b6fee6c680c30a91bec942006
+  search: sha256:67e76d5bc2e33ecb35dc6ed101191cac8314a66ebde0d7931502dd5d0d104aea
+  profiler: sha256:ceee129336d77aef97476e389ea328fcee20f0b48fb678498ad23a80476c5503
+  chat: sha256:a05545ac495213030d2afaf2ae09e4f7d915716223667ef95e5562aa3e7d63e8
+nodeSelector:
+  environment: production
+  workload: ai
+  workload-tier: flex
+  karpenter.sh/capacity-type: spot
+tolerations:
+  - {key: environment, operator: Equal, value: production, effect: NoSchedule}
+  - {key: workload, operator: Equal, value: ai, effect: NoSchedule}
+env:
+  AI_ENVIRONMENT: production
+  AI_DATABASE_NAME: ai_db_production
+  AI_DATABASE_HOST: seonjalal-v2-production-ai-postgres.cbqckkusw4ke.ap-northeast-2.rds.amazonaws.com
+  AI_CREDENTIAL_BACKEND: files
+  AI_CREDENTIAL_LAYOUT: separate
+  AWS_REGION: ap-northeast-2
+  AWS_DEFAULT_REGION: ap-northeast-2
+  AWS_EC2_METADATA_DISABLED: "true"
+  PGSSLMODE: verify-full
+  PGSSLROOTCERT: /shared/rds-ca.pem
+  ASSET_ROOT: /shared/assets
+  SEARCH_RUNTIME_ROOT: /runtime
+search:
+  env:
+    SEARCH_MEDIA_ROOT: /shared/media
+chat:
+  env:
+    SEARCH_URL: http://127.0.0.1:8000
+    INTERNAL_URL: http://127.0.0.1:7860
+    CHAT_MEDIA_ROOT: /shared/media
+    COOKIE_SECURE: "true"
+    CHAT_MODEL: openai/gpt-6-luna
+profiler:
+  # AI 팀 확인: Modal v3 사용, 모델 호출 장애 시 기존 OpenRouter 모델 폴백 허용.
+  tagEngine: v3
+  modalSecretName: ai-profiler-modal
+  env:
+    PROFILING_APP_DB_ROLE: ai_profiler_service
+    PROFILING_TAGGER_MODEL: google/gemini-3.5-flash-lite
+    PROFILING_V3_FALLBACK: "true"
+    PROFILING_MQ_ENABLED: "true"
+    PROFILING_MQ_PREFETCH: "8"
+    PROFILING_MQ_SLOTS: "8"
+    PROFILING_MQ_RECONNECT_DELAY_S: "5"
+    PROFILING_MQ_SHUTDOWN_GRACE_S: "35"
+    PROFILING_MQ_CONFIRM_TIMEOUT_S: "30"
+    PROFILING_MQ_WAIT_S: "5"
+    PROFILING_MQ_MAX_ANALYSIS_ATTEMPTS: "3"
+    PROFILING_MQ_RETRY_BASE_S: "30"
+    PROFILING_MQ_RETRY_MAX_S: "120"
+    PROFILING_MQ_RECONCILE_AFTER_S: "1800"
+    PROFILING_MQ_RECONCILE_INTERVAL_S: "300"
