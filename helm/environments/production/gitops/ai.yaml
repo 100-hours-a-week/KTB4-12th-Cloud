@@ -1,0 +1,4 @@
+# 이미 운영 중인 단일 AI Pod를 승계하는 값. 새 분석 요청을 만들지는 않습니다.
+replicas: 1
+launchApproved: true
+
