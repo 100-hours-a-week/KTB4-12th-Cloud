@@ -1,7 +1,8 @@
 # 아직 출시용 활성화 파일이 아닙니다. 이미지/스키마 확인 후 서비스별로 기동합니다.
 replicas: 0
 database:
-  schemaReviewed: false
+  # V3.0.1 필수 16개 적용·신규 테이블 앱 DML 권한 확인. V45/V46은 V2 종료 후 별도 적용.
+  schemaReviewed: true
 image:
   repository: 721744297924.dkr.ecr.ap-northeast-2.amazonaws.com/seonjalal/production/backend
 env:

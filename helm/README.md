@@ -42,7 +42,9 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 - `replicas > 0`은 `database.schemaReviewed: true` 필요
 - Main은 추가로 `image.mainRuntimeCompatible: true` 필요
 - 위 두 값은 확인 결과를 기록하는 수동 선언. 코드·DB·실제 접속을 자동 검증하는 기능이 아님
-- DB 스키마 검토 후 필요한 Migration을 별도 실행하고 앱의 Flyway는 비활성 유지
+- 공유 운영 DB에 V3.0.1 필수 Migration 16개 적용 및 신규 13테이블 앱 DML 권한 확인 후 common.yaml의 schemaReviewed: true 반영
+- V45·V46은 V2가 사용하는 SSE 구조 변경·삭제이므로 V2 종료 후 별도 적용. 현재 최고 이력 V54가 모든 중간 버전 적용을 의미하지 않음
+- 앱의 Flyway는 비활성 유지. schemaReviewed는 운영 검토 기록이며 데이터 정합성·무중단이나 향후 스키마 변경의 자동 승인이 아님
 - SecretStore·ExternalSecret·ServiceAccount·IRSA는 기존 준비 리소스 참조. 이 Chart에서 재생성하지 않음
 - S3 인증은 Java STS 모듈·ServiceAccount·IAM·STS 네트워크 연결까지 갖춰야 완료
 - AI 주소는 향후 생성할 `ai-chat`·`ai-profiler` Service 이름. 현재 AI 배포 완료가 아님
