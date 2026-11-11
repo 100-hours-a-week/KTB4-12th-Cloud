@@ -12,6 +12,12 @@
     "serviceAccount"
   ],
   "properties": {
+    "deploymentAnnotations": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "name": {
       "type": "string",
       "minLength": 1,
