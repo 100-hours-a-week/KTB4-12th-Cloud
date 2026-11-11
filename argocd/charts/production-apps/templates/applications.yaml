@@ -1,5 +1,5 @@
-{{- if and .Values.automatedSync (ne .Values.revision "develop") -}}
-{{- fail "자동 동기화는 리뷰·승계 후 develop 기준으로만 활성화 가능" -}}
+{{- if and .Values.automatedSync (ne .Values.revision "main") -}}
+{{- fail "운영 자동 동기화는 리뷰·승계 후 main 기준으로만 활성화 가능" -}}
 {{- end -}}
 {{- range .Values.applications }}
 ---
