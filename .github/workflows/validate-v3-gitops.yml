@@ -9,6 +9,7 @@ on:
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
+      - 'scripts/prepare-v3-prometheus.py'
       - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
@@ -21,6 +22,7 @@ on:
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
+      - 'scripts/prepare-v3-prometheus.py'
       - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   workflow_dispatch:
@@ -65,3 +67,19 @@ jobs:
             --entrypoint /bin/amtool \
             prom/alertmanager@sha256:58e117eabccebbff04e6643a3432d6315a2cc3a8c24ab5849bc628886bf08857 \
             check-config /etc/alertmanager/alertmanager.yml
+      # 가상 시각으로 DLQ 빈 값 오경보 방지·만료 경고를 검사. 실제 큐·네트워크 사용 없음.
+      - name: Validate payment RabbitMQ rules
+        run: |
+          for rule_check in check test; do
+            if [ "$rule_check" = check ]; then
+              rule_file=payment-rabbitmq-alerts.yml
+            else
+              rule_file=payment-rabbitmq-alerts.test.yml
+            fi
+            docker run --rm --read-only --network none \
+              --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 \
+              --volume "$PWD/operations/monitoring/prometheus:/check:ro" \
+              --workdir /check --entrypoint /bin/promtool \
+              prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e \
+              "$rule_check" rules "/check/$rule_file"
+          done

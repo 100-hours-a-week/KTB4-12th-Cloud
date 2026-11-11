@@ -1,0 +1,25 @@
+# 테스트의 30일은 가상 평가 시각. 실제 대기·업무 메시지 생성 없음.
+rule_files:
+  - payment-rabbitmq-alerts.yml
+evaluation_interval: 1d
+tests:
+  - name: empty-dlq-zero-timestamp-is-not-old-message
+    interval: 1d
+    input_series:
+      - series: 'rabbitmq_detailed_queue_head_message_timestamp{cluster="seonjalal-v3",environment="production",job="rabbitmq-dlq-age",vhost="gift",queue="gift.receipt.email.dlq"}'
+        values: '0+0x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PaymentRabbitDLQNearExpiry",alertstate="firing"}'
+        eval_time: 30d
+        exp_samples: []
+  - name: old-message-warns-after-hold-time
+    interval: 1d
+    input_series:
+      - series: 'rabbitmq_detailed_queue_head_message_timestamp{cluster="seonjalal-v3",environment="production",job="rabbitmq-dlq-age",vhost="gift",queue="gift.receipt.email.dlq"}'
+        values: '1+0x30'
+    promql_expr_test:
+      - expr: 'ALERTS{alertname="PaymentRabbitDLQNearExpiry",alertstate="firing"}'
+        eval_time: 30d
+        exp_samples:
+          - labels: 'ALERTS{alertname="PaymentRabbitDLQNearExpiry",alertstate="firing",cluster="seonjalal-v3",environment="production",component="payment-rabbitmq",severity="warning",vhost="gift",queue="gift.receipt.email.dlq"}'
+            value: 1
