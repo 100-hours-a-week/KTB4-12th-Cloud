@@ -1,0 +1,39 @@
+name: Validate V3 GitOps
+on:
+  pull_request:
+    paths:
+      - 'argocd/**'
+      - 'helm/**'
+      - 'scripts/validate-v3-gitops.rb'
+      - 'scripts/lib/v3_gitops_errors.rb'
+      - 'scripts/test-v3-gitops-errors.rb'
+      - '.github/workflows/validate-v3-gitops.yml'
+  push:
+    branches: [develop, feat/v3-argocd]
+    paths:
+      - 'argocd/**'
+      - 'helm/**'
+      - 'scripts/validate-v3-gitops.rb'
+      - 'scripts/lib/v3_gitops_errors.rb'
+      - 'scripts/test-v3-gitops-errors.rb'
+      - '.github/workflows/validate-v3-gitops.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.1
+      # AWS 인증·kubectl·Argo API 연결 없이 렌더와 배포 경계만 검사합니다.
+      - name: Validate application adoption boundaries
+        run: |
+          ruby scripts/test-v3-gitops-errors.rb
+          ruby scripts/validate-v3-gitops.rb

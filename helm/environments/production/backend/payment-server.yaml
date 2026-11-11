@@ -1,0 +1,23 @@
+name: payment-server
+component: payment
+image:
+  # 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
+  digest: sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a
+serviceAccount:
+  name: default
+  automountServiceAccountToken: false
+service:
+  type: ClusterIP
+  port: 8090
+secretEnvFrom:
+  - payment-runtime
+redisAccess: false
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 1536Mi
+env:
+  PAYMENT_SERVER_PORT: "8090"

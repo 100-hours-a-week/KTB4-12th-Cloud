@@ -1,0 +1,43 @@
+{{- if and .Values.automatedSync (ne .Values.revision "develop") -}}
+{{- fail "자동 동기화는 리뷰·승계 후 develop 기준으로만 활성화 가능" -}}
+{{- end -}}
+{{- range .Values.applications }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Application과 기존 Helm Release 이름을 같게 유지해 selector 변동을 방지합니다.
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  # 삭제 시 앱을 연쇄 삭제하는 resources-finalizer는 의도적으로 추가하지 않습니다.
+spec:
+  project: {{ $.Values.project }}
+  source:
+    repoURL: {{ $.Values.repository | quote }}
+    targetRevision: {{ $.Values.revision | quote }}
+    path: {{ .chartPath | quote }}
+    helm:
+      releaseName: {{ .name }}
+      valueFiles:
+        {{- toYaml .valueFiles | nindent 8 }}
+  destination:
+    server: {{ $.Values.destination.server | quote }}
+    namespace: {{ $.Values.destination.namespace | quote }}
+  syncPolicy:
+    automated:
+      enabled: {{ $.Values.automatedSync }}
+      # 잘못된 삭제를 막고 Git 변경 반영과 수동 drift 복구만 자동화합니다.
+      prune: false
+      selfHeal: {{ $.Values.automatedSync }}
+      allowEmpty: false
+    syncOptions:
+      - FailOnSharedResource=true
+      - Prune=false
+      # Force/Replace/SSA 및 namespace 자동 생성 없이 기존 리소스 patch부터 검토합니다.
+    retry:
+      limit: 2
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 1m
+{{- end }}

@@ -16,7 +16,7 @@ echo "[1/4] Docker Compose 설정 검증"
 sudo docker compose "${compose_args[@]}" config --quiet
 
 echo "[2/4] Container Health 검증"
-for service in database main-backend payment-server frontend; do
+for service in database redis main-backend payment-server frontend; do
   container_id="$(sudo docker compose "${compose_args[@]}" ps -q "${service}")"
   if [[ -z "${container_id}" ]]; then
     echo "Container가 생성되지 않음: ${service}" >&2

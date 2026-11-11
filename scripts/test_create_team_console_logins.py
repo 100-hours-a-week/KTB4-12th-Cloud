@@ -73,6 +73,27 @@ class Tests(unittest.TestCase):
         self.assertNotIn("fs-theo", [item["UserName"] for item in fake.created])
         self.assertTrue(all(item["PasswordResetRequired"] for item in fake.created))
 
+    def test_single_user_option_issues_only_that_user(self):
+        fake, output = Fake(), io.StringIO()
+        fake.profiles.update({name: {"UserName": name} for name in login.USERS})
+        with tempfile.TemporaryDirectory() as temporary, contextlib.redirect_stdout(output):
+            path = login.issue(fake, Path(temporary), ("fs-theo",))
+            record = json.loads(path.read_text())
+            self.assertEqual(set(record["users"]), {"fs-theo"})
+            self.assertEqual(record["users"]["fs-theo"]["status"], "issued")
+            self.assertNotIn(record["users"]["fs-theo"]["temporary_password"], output.getvalue())
+        self.assertEqual([item["UserName"] for item in fake.created], ["fs-theo"])
+        self.assertTrue(fake.created[0]["PasswordResetRequired"])
+
+    def test_existing_profile_blocks_selected_user_before_create(self):
+        fake = Fake()
+        fake.profiles["fs-theo"] = {"UserName": "fs-theo"}
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(ValueError):
+                login.issue(fake, Path(temporary), ("fs-theo",))
+            self.assertFalse((Path(temporary) / "credentials.json").exists())
+        self.assertEqual(fake.created, [])
+
     def test_existing_profile_stops_before_any_create(self):
         fake = Fake()
         fake.profiles["ai-emet"] = {"UserName": "ai-emet"}

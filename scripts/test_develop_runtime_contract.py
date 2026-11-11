@@ -20,6 +20,13 @@ PUBLIC_KEYS = (
 SECRET_KEYS = (
     "PAYMENT_SERVER_API_KEY", "AI_CHAT_SERVICE_TOKEN",
     "CHAT_CONVERSATION_TOKEN_SECRET_BASE64",
+    "REDIS_PASSWORD", "SMTP_USERNAME", "SMTP_PASSWORD",
+)
+# 항상 필요한 Runtime Secret(AI 설정과 무관). 테스트의 가짜 Secret 응답에 포함한다.
+BASE_SECRET_KEYS = (
+    "DB_PASSWORD", "DB_ROOT_PASSWORD", "JWT_SECRET_BASE64",
+    "LOGIN_RATE_LIMIT_HMAC_SECRET_BASE64", "PROFILING_SERVICE_TOKEN",
+    "PAYMENT_SERVER_API_KEY", "REDIS_PASSWORD", "SMTP_USERNAME", "SMTP_PASSWORD",
 )
 
 
@@ -149,6 +156,72 @@ class DevelopRuntimeContractTest(unittest.TestCase):
                 self.assertIn("DISCORD_WEBHOOK_URL", result.stderr)
                 self.assertNotIn("test-only", result.stderr)
 
+    def test_redis_runs_inside_the_network_and_backend_waits_for_it(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        redis = compose.split("\n  redis:\n", 1)[1].split("\n  database:\n", 1)[0]
+        self.assertIn("image: redis:7.4-alpine", redis)
+        self.assertIn('--requirepass "$$REDIS_PASSWORD"', redis)
+        self.assertNotRegex(redis, r"(?m)^    ports:")  # 호스트 Port 비공개
+        self.assertIn("healthcheck:", redis)
+        self.assertRegex(redis, r"(?m)^    mem_limit: ")
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        self.assertRegex(backend, r"depends_on:(?:.|\n)*redis:\s+condition: service_healthy")
+        for line in ('REDIS_HOST: redis', 'REDIS_PORT: "6379"', "REDIS_PASSWORD: ${REDIS_PASSWORD:?"):
+            self.assertIn(line, backend)
+
+    def test_smtp_uses_ses_with_fixed_transport_and_secret_credentials(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        for line in ('SMTP_PORT: "587"', 'SMTP_AUTH: "true"', 'SMTP_STARTTLS_ENABLE: "true"',
+                     "SMTP_FROM_ADDRESS: no-reply@seonjalal.com",
+                     "SMTP_USERNAME: ${SMTP_USERNAME:?", "SMTP_PASSWORD: ${SMTP_PASSWORD:?"):
+            self.assertIn(line, backend)
+        self.assertIn("email-smtp.${AWS_REGION:-ap-northeast-2}.amazonaws.com", backend)
+        # 메일 서버 장애가 앱 전체 Health를 내리지 않도록 메일만 Health에서 제외한다.
+        self.assertIn('MANAGEMENT_HEALTH_MAIL_ENABLED: "false"', backend)
+
+    def test_redis_and_smtp_secrets_are_required_by_the_loader(self):
+        for key in ("REDIS_PASSWORD", "SMTP_USERNAME", "SMTP_PASSWORD"):
+            with self.subTest(key=key):
+                result = self.run_loader(False, drop=key)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(key, result.stderr)
+                self.assertNotIn("test-only", result.stderr)
+
+    def test_loader_accepts_ses_smtp_password_characters(self):
+        # SES SMTP 비밀번호는 Base64라 + / = 를 포함할 수 있다.
+        result = self.run_loader(False, extra={"SMTP_PASSWORD": "Ab+c/dE=="})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SMTP_PASSWORD=Ab+c/dE==", result.stdout)
+
+    def test_deploy_starts_redis_before_apps_and_logs_failed_service(self):
+        deploy = (RUNTIME / "scripts/deploy.sh").read_text()
+        redis_up = deploy.index("--wait-timeout 120 redis")
+        app_pull = deploy.index("pull main-backend payment-server frontend")
+        self.assertLess(redis_up, app_pull)
+        self.assertIn('logs --no-color --tail 100 "${application_service}"', deploy)
+        self.assertIn('exit "${deploy_status}"', deploy)
+
+    def test_global_scheduling_on_but_ai_profiling_stays_off(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        # 전역 스케줄러가 꺼지면 알림 SSE 하트비트와 Outbox가 멈춘다(2026-10-28 개발 서버 SSE 장애).
+        self.assertRegex(backend, r'(?m)^      SCHEDULING_ENABLED: "true"$')
+        # AI 프로파일링 호출은 AI 서비스가 준비되기 전까지 별도 플래그로 끈다.
+        self.assertRegex(backend, r'(?m)^      AI_PROFILE_SCHEDULING_ENABLED: "false"$')
+
+    def test_external_dependencies_do_not_gate_app_health(self):
+        compose = (RUNTIME / "compose.yaml").read_text()
+        backend = compose.split("\n  main-backend:\n", 1)[1].split("\n  payment-server:\n", 1)[0]
+        self.assertIn('MANAGEMENT_HEALTH_MAIL_ENABLED: "false"', backend)
+        # 표준 설정 이름(management.health.redis.enabled)을 쓴다. SPRING_HEALTH_* 같은 비표준 이름은 효과가 없을 수 있다.
+        self.assertIn('MANAGEMENT_HEALTH_REDIS_ENABLED: "false"', backend)
+        self.assertNotIn("SPRING_HEALTH_REDIS_ENABLED", compose)
+
+    def test_verify_checks_redis_health(self):
+        verify = (RUNTIME / "scripts/verify.sh").read_text()
+        self.assertIn("for service in database redis main-backend payment-server frontend; do", verify)
+
     @staticmethod
     def run_public_guard(flag, search=None):
         script = RUNTIME / "scripts/deploy.sh"
@@ -168,17 +241,12 @@ class DevelopRuntimeContractTest(unittest.TestCase):
             )
 
     @staticmethod
-    def run_loader(enabled, empty=False, extra=None):
+    def run_loader(enabled, empty=False, extra=None, drop=None):
         deploy = (RUNTIME / "scripts/deploy.sh").read_text()
         code = "import json" + deploy.split("import json", 1)[1].split("\n' >", 1)[0]
-        keys = (
-            "DB_PASSWORD", "DB_ROOT_PASSWORD", "JWT_SECRET_BASE64",
-            "LOGIN_RATE_LIMIT_HMAC_SECRET_BASE64", "PROFILING_SERVICE_TOKEN",
-            "PAYMENT_SERVER_API_KEY",
-        )
         return subprocess.run(
             ["python3", "-c", code], input="" if empty else json.dumps(
-                {**{key: "test-only" for key in keys}, **(extra or {})}
+                {**{key: "test-only" for key in BASE_SECRET_KEYS if key != drop}, **(extra or {})}
             ), text=True, capture_output=True,
             env={**os.environ, "AI_CHAT_ENABLED": str(enabled).lower()},
         )

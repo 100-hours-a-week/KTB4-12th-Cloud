@@ -31,8 +31,8 @@ run "settings_admin_keeps_mfa_without_server_access" {
 run "team_settings_are_scoped" {
   command = plan
   assert {
-    condition     = length(aws_iam_user.member) == 4 && !contains(keys(aws_iam_user.member), "fs-theo")
-    error_message = "새 개인 계정4개만 생성하고 기존Theo계정은 조회만 수행 필요."
+    condition     = length(aws_iam_user.member) == 5 && contains(keys(aws_iam_user.member), "fs-theo")
+    error_message = "팀원 5명(재생성한 fs-theo 포함) 전원을 Terraform이 관리 필요."
   }
   assert {
     condition     = length(aws_secretsmanager_secret.team) == 4 && alltrue([for store in values(aws_secretsmanager_secret.team) : !strcontains(store.name, "production")])

@@ -1,0 +1,9 @@
+# 공통 Main 이미지 사용. 공통 자동 작업과 프로파일링 발행·소비 실행 주체.
+name: recommendation-service
+env:
+  # 다른 Main 서비스는 common/main의 false 유지. 이 Release는 현재 1개 Pod로 운영.
+  SCHEDULING_ENABLED: "true"
+  AI_PROFILE_AMQP_ENABLED: "true"
+  AI_PROFILE_QUORUM_INITIAL_GROUP_SIZE: "3"
+  AI_PROFILE_SCHEDULING_ENABLED: "true"
+  AI_PROFILE_RESULT_CONSUMER_ENABLED: "true"

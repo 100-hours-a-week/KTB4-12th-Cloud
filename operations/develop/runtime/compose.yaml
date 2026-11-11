@@ -33,6 +33,22 @@ services:
       AWS_REGION: ${AWS_REGION:-ap-northeast-2}
       AWS_EC2_METADATA_V1_DISABLED: "true"
       PRODUCT_IMAGE_BUCKET: ${PRODUCT_IMAGE_BUCKET}
+      # 로그인 제한과 이메일 인증번호가 Redis를 쓴다. 주소는 Compose 서비스 이름으로 고정하고 비밀번호만 Runtime Secret에서 받는다.
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      # 이메일 인증과 결제 영수증 메일은 SES SMTP를 쓴다. 주소와 암호화 설정은 고정, 자격 증명만 Runtime Secret에서 받는다.
+      SMTP_HOST: email-smtp.${AWS_REGION:-ap-northeast-2}.amazonaws.com
+      SMTP_PORT: "587"
+      SMTP_AUTH: "true"
+      SMTP_STARTTLS_ENABLE: "true"
+      SMTP_USERNAME: ${SMTP_USERNAME:?SMTP_USERNAME is required}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD is required}
+      SMTP_FROM_ADDRESS: no-reply@seonjalal.com
+      # Backend 기본 Health는 Redis와 SMTP 접속까지 확인한다. 외부 의존성 장애가 앱 전체를 unhealthy로 만들지 않도록 둘 다 앱 Health에서 제외한다.
+      # 로그인 제한은 Redis 장애 시 MySQL로 대체 동작하는 설계(LoginRateLimiter)라 앱 Health에 Redis가 필요하지 않다. Redis 컨테이너 상태는 아래 redis 서비스의 Health와 verify.sh가 따로 확인한다.
+      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"
+      MANAGEMENT_HEALTH_REDIS_ENABLED: "false"
       # PR #402: 인덱스 동기화·운영 검증 전에는 반드시 기존 MySQL 검색 유지.
       PRODUCT_SEARCH_ENABLED: "false"
       JWT_SECRET_BASE64: ${JWT_SECRET_BASE64}
@@ -62,8 +78,10 @@ services:
       AI_PROFILE_BATCH_SIZE: ${AI_PROFILE_BATCH_SIZE:-100}
       AI_PROFILE_RECOVERY_BATCH_SIZE: ${AI_PROFILE_RECOVERY_BATCH_SIZE:-50}
       AI_PROFILE_DISPATCH_INTERVAL: ${AI_PROFILE_DISPATCH_INTERVAL:-1m}
+      # AI 프로파일링 호출은 별도 플래그로 계속 끈다(AI 서비스 준비 전).
       AI_PROFILE_SCHEDULING_ENABLED: "false"
-      SCHEDULING_ENABLED: "false"
+      # 전역 스케줄러 스위치. false이면 알림 SSE 하트비트와 Outbox, 선물 만료, 결제 정합 등 모든 @Scheduled가 꺼진다. 개발 서버 SSE에 필요해 true로 둔다.
+      SCHEDULING_ENABLED: "true"
       SPRING_JPA_SHOW_SQL: "false"
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70 -XX:InitialRAMPercentage=25
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -78,6 +96,8 @@ services:
       - "8080"
     depends_on:
       database:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/actuator/health >/dev/null || exit 1"]
@@ -118,6 +138,31 @@ services:
     networks:
       - application
 
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    # 호스트 Port를 열지 않고 application 네트워크의 Backend만 접속한다. 메모리는 Container 제한 안에서 128MB로 고정한다.
+    command:
+      - /bin/sh
+      - -ec
+      - exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD" --maxmemory 128mb --maxmemory-policy noeviction
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test \"$$(REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli --raw ping)\" = PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    mem_limit: 192m
+    cpus: 0.25
+    networks:
+      - application
+
   database:
     image: mysql:8.4
     restart: unless-stopped
@@ -141,6 +186,9 @@ services:
     cpus: 0.75
     networks:
       - application
+
+volumes:
+  redis-data:
 
 networks:
   application:

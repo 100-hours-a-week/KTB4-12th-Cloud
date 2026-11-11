@@ -1,0 +1,144 @@
+{{- include "backend.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "backend.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "backend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  revisionHistoryLimit: 3
+  minReadySeconds: 10
+  progressDeadlineSeconds: 600
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "backend.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "backend.labels" . | nindent 8 }}
+        {{- if .Values.redisAccess }}
+        seonjalal.io/redis-access: "true"
+        {{- end }}
+      annotations:
+        checksum/runtime: {{ toJson .Values.env | sha256sum }}
+        checksum/bootstrap: {{ printf "%s\n%s" (.Files.Get "files/start.sh") (.Files.Get "files/rds-ca.pem") | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "backend.selector" . | nindent 14 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  {{- include "backend.selector" . | nindent 18 }}
+      containers:
+        - name: {{ .Values.component }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "/app/bootstrap/start.sh"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          envFrom:
+            - configMapRef:
+                name: {{ include "backend.name" . }}-runtime
+            {{- range .Values.secretEnvFrom }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- with .Values.secretEnv }}
+          env:
+            {{- range . }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .key }}
+            {{- end }}
+          {{- end }}
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /app/bootstrap
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.elasticsearchCA.enabled }}
+            - name: es-ca
+              mountPath: /app/certs
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: {{ include "backend.name" . }}-bootstrap
+            defaultMode: 0444
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+        {{- if .Values.elasticsearchCA.enabled }}
+        - name: es-ca
+          secret:
+            secretName: {{ .Values.elasticsearchCA.secretName }}
+            defaultMode: 0444
+            items:
+              - key: {{ .Values.elasticsearchCA.secretKey }}
+                path: es-http-ca.crt
+        {{- end }}

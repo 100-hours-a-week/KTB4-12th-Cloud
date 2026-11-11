@@ -1,0 +1,92 @@
+component: main
+image:
+  # Sentinel·STS 반영 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
+  digest: sha256:4bff8ce0b6e372076f59a48280d7981ac95a7c01710ebbda9a7642e584832e11
+  # 릴리스 코드·빌드 확인 기준이며, 실제 EKS 연결 검증 완료를 의미하지 않음.
+  mainRuntimeCompatible: true
+serviceAccount:
+  name: main-backend
+  automountServiceAccountToken: true
+service:
+  type: NodePort
+  port: 8080
+secretEnvFrom:
+  - backend-runtime
+# DB/JWT 외의 제품 인증값은 V3 전용 Secret에서 명시적으로 선택.
+secretEnv:
+  - name: REDIS_AUTH_PASSWORD
+    secretName: redis-auth
+    key: password
+  - name: REDIS_PRODUCT_PASSWORD
+    secretName: redis-product
+    key: password
+  - name: REDIS_AUTH_SENTINEL_PASSWORD
+    secretName: redis-sentinel
+    key: password
+  - name: REDIS_PRODUCT_SENTINEL_PASSWORD
+    secretName: redis-sentinel
+    key: password
+  - name: SPRING_RABBITMQ_USERNAME
+    secretName: rabbitmq-app
+    key: username
+  - name: SPRING_RABBITMQ_PASSWORD
+    secretName: rabbitmq-app
+    key: password
+  - name: RABBITMQ_MANAGEMENT_USERNAME
+    secretName: rabbitmq-app
+    key: username
+  - name: RABBITMQ_MANAGEMENT_PASSWORD
+    secretName: rabbitmq-app
+    key: password
+  - name: SPRING_ELASTICSEARCH_USERNAME
+    secretName: elasticsearch-runtime
+    key: SPRING_ELASTICSEARCH_USERNAME
+  - name: SPRING_ELASTICSEARCH_PASSWORD
+    secretName: elasticsearch-runtime
+    key: SPRING_ELASTICSEARCH_PASSWORD
+elasticsearchCA:
+  enabled: true
+env:
+  PRODUCT_IMAGE_BUCKET: gift-dev-product-images-721744297924-ap-northeast-2-an
+  JWT_ISSUER: seonjalal-production
+  CHAT_CONVERSATION_TOKEN_ISSUER: seonjalal-production-chat
+  CORS_ALLOWED_ORIGINS: https://www.seonjalal.com
+  PAYMENT_SERVER_BASE_URL: http://payment-server.production.svc.cluster.local:8090
+  AI_CHAT_BASE_URL: http://ai-chat.production.svc.cluster.local:7860/v1/chat/conversations
+  AI_PROFILE_BASE_URL: http://ai-profiler.production.svc.cluster.local:8001
+  AI_CHAT_CONNECT_TIMEOUT: 3s
+  AI_CHAT_READ_TIMEOUT: 120s
+  AI_CHAT_SSE_IDLE_TIMEOUT: 120s
+  AI_CHAT_SSE_TOTAL_TIMEOUT: 300s
+  AI_CHAT_SSE_MAX_CONNECTIONS: "100"
+  REDIS_AUTH_SENTINEL_ENABLED: "true"
+  REDIS_AUTH_SENTINEL_MASTER: redis-auth
+  REDIS_AUTH_SENTINEL_NODES: redis-sentinel-0.redis-sentinel-headless.production.svc.cluster.local:26379,redis-sentinel-1.redis-sentinel-headless.production.svc.cluster.local:26379,redis-sentinel-2.redis-sentinel-headless.production.svc.cluster.local:26379
+  REDIS_PRODUCT_SENTINEL_ENABLED: "true"
+  REDIS_PRODUCT_SENTINEL_MASTER: redis-product
+  REDIS_PRODUCT_SENTINEL_NODES: redis-sentinel-0.redis-sentinel-headless.production.svc.cluster.local:26379,redis-sentinel-1.redis-sentinel-headless.production.svc.cluster.local:26379,redis-sentinel-2.redis-sentinel-headless.production.svc.cluster.local:26379
+  SPRING_RABBITMQ_HOST: rabbitmq.production.svc.cluster.local
+  SPRING_RABBITMQ_PORT: "5672"
+  SPRING_RABBITMQ_VIRTUAL_HOST: gift
+  RABBITMQ_MANAGEMENT_URL: http://rabbitmq.production.svc.cluster.local:15672
+  ELASTICSEARCH_URIS: https://10.20.10.13:9200
+  SPRING_ELASTICSEARCH_RESTCLIENT_SSL_BUNDLE: esprod
+  SPRING_SSL_BUNDLE_PEM_ESPROD_TRUSTSTORE_CERTIFICATE: file:/app/certs/es-http-ca.crt
+  PRODUCT_SEARCH_INDEX: gift-products-prod
+  # 첫 기동에는 V2 워커와 중복 실행하지 않도록 비활성화. 실제 전환 때 업무별 활성화.
+  SCHEDULING_ENABLED: "false"
+  AI_PROFILE_SCHEDULING_ENABLED: "false"
+  AI_PROFILE_CLEANUP_ENABLED: "false"
+  AI_PROFILE_AMQP_ENABLED: "false"
+  AI_PROFILE_RESULT_CONSUMER_ENABLED: "false"
+  AI_PROFILE_QUORUM_INITIAL_GROUP_SIZE: "3"
+  OUTBOX_ENABLED: "false"
+  REPORT_MQ_ENABLED: "false"
+  REPORT_DISCORD_CONSUMER_ENABLED: "false"
+  REPORT_SHEETS_CONSUMER_ENABLED: "false"
+  NOTIFICATION_COMMON_OUTBOX_ENABLED: "false"
+  PAYMENT_MQ_TOPOLOGY_ENABLED: "false"
+  PAYMENT_RECOVERY_DISPATCH_ENABLED: "false"
+  PRODUCT_SEARCH_ENABLED: "false"
+  PRODUCT_SEARCH_OUTBOX_ENABLED: "false"
+  PRODUCT_SEARCH_SYNC_ENABLED: "false"

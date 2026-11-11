@@ -31,12 +31,13 @@ run "enabled_for_both_existing_teams_only" {
     error_message = "모든 Allow는 서울 리전으로 제한 필요."
   }
   assert {
-    # 조회 Allow는 정확한 운영 로그 그룹 ARN만 사용. 로그 그룹 와일드카드 금지.
+    # 조회 Allow는 정확한 운영 ECS·RDS 로그 그룹 ARN만 사용. 로그 그룹 와일드카드와 스테이징 그룹 금지.
     condition = alltrue([for resource in jsondecode(aws_iam_policy.production_log_read[0].policy).Statement[0].Resource :
-      startswith(resource, "arn:aws:logs:ap-northeast-2:721744297924:log-group:/ecs/seonjalal-v2-production") &&
+      (startswith(resource, "arn:aws:logs:ap-northeast-2:721744297924:log-group:/ecs/seonjalal-v2-production") ||
+      startswith(resource, "arn:aws:logs:ap-northeast-2:721744297924:log-group:/aws/rds/instance/seonjalal-v2-production")) &&
       !strcontains(replace(resource, ":*", ""), "*")
     ])
-    error_message = "이벤트 조회 범위는 정확한 운영 /ecs/ 로그 그룹만 허용."
+    error_message = "이벤트 조회 범위는 정확한 운영 ECS·RDS 로그 그룹만 허용."
   }
   assert {
     condition = alltrue([for action in jsondecode(aws_iam_policy.production_log_read[0].policy).Statement[0].Action :

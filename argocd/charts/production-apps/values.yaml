@@ -1,0 +1,56 @@
+repository: https://github.com/100-hours-a-week/KTB4-12th-Cloud.git
+# 이 브랜치가 원격에 게시된 뒤에만 조회 가능. PR 머지 후 develop으로 변경합니다.
+revision: feat/v3-argocd
+project: seonjalal-v3-production
+destination:
+  server: https://kubernetes.default.svc
+  namespace: production
+# 최초에는 비교만 수행. 실제 Sync 검토·승계 완료 후 별도 변경으로 활성화합니다.
+automatedSync: false
+applications:
+  - name: payment-server
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/payment-server.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: member-service
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/main.yaml
+      - ../../environments/production/backend/member-service.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: catalog-service
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/main.yaml
+      - ../../environments/production/backend/catalog-service.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: gifting-service
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/main.yaml
+      - ../../environments/production/backend/gifting-service.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: recommendation-service
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/main.yaml
+      - ../../environments/production/backend/recommendation-service.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: notification-service
+    chartPath: helm/charts/backend
+    valueFiles:
+      - ../../environments/production/backend/common.yaml
+      - ../../environments/production/backend/main.yaml
+      - ../../environments/production/backend/notification-service.yaml
+      - ../../environments/production/gitops/backend.yaml
+  - name: ai-runtime
+    chartPath: helm/charts/ai
+    valueFiles:
+      - ../../environments/production/ai/runtime.yaml
+      - ../../environments/production/gitops/ai.yaml

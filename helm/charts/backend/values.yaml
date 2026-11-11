@@ -1,0 +1,57 @@
+# 서비스별 values에서 이름·이미지·설정을 덮어씁니다.
+name: ""
+component: main
+
+# 준비 단계에는 JVM을 실행하지 않습니다. 기본 운영 목표는 서비스별 2개입니다.
+replicas: 0
+image:
+  repository: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+  # Sentinel 연결·IRSA STS 모듈이 포함된 Main 이미지 확인 후에만 true.
+  mainRuntimeCompatible: false
+database:
+  # 기존 V2와 공유하는 DB의 새 스키마 호환성 검토 후에만 true.
+  schemaReviewed: false
+
+serviceAccount:
+  name: main-backend
+  automountServiceAccountToken: true
+service:
+  type: NodePort
+  port: 8080
+
+env: {}
+secretEnvFrom: []
+secretEnv: []
+elasticsearchCA:
+  enabled: false
+  secretName: elasticsearch-runtime
+  secretKey: ES_HTTP_CA_CRT
+
+# 실제 V2 Main의 512 CPU units·1536 MiB를 초기 requests 기준으로 사용.
+# 부하테스트로 확인된 최적값이 아니며, 운영 지표에 따라 재산정합니다.
+resources:
+  requests:
+    cpu: 500m
+    memory: 1536Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+nodeSelector:
+  environment: production
+  workload: application
+  workload-tier: base
+  karpenter.sh/capacity-type: on-demand
+tolerations:
+  - key: environment
+    operator: Equal
+    value: production
+    effect: NoSchedule
+  - key: workload-tier
+    operator: Equal
+    value: base
+    effect: NoSchedule
+redisAccess: true
+terminationGracePeriodSeconds: 75

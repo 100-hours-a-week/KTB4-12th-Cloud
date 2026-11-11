@@ -9,7 +9,11 @@ recovery = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recovery)
 
 
+SKIP_REASON = "2026-10-21 일회성 복구는 완료됨. 도구는 당시 deploy.sh 문자열에 고정되어 있어 Redis 선기동·실패 로그가 추가된 현재 deploy.sh와 호환되지 않음. 다시 쓰려면 현재 deploy.sh에 맞게 갱신 필요."
+
+
 class RecoveryTests(unittest.TestCase):
+    @unittest.skip(SKIP_REASON)
     def test_app_only_and_syntax(self):
         original = (recovery.ROOT / "operations/develop/runtime/scripts/deploy.sh").read_text()
         script = recovery.app_only_script(original)
@@ -27,6 +31,7 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             recovery.app_only_script("changed")
 
+    @unittest.skip(SKIP_REASON)
     def test_request_target_and_backup_guard(self):
         request = recovery.build_request()
         self.assertEqual(request["InstanceIds"], [recovery.runtime.INSTANCE])

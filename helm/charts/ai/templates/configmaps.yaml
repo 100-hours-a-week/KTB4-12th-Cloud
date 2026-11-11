@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-launcher
+  labels:
+    {{- include "ai.labels" . | nindent 4 }}
+data:
+  start.py: |
+    {{- .Files.Get "files/start.py" | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.bootstrapConfigMap }}
+  labels:
+    {{- include "ai.labels" . | nindent 4 }}
+data:
+  init-assets.py: |
+    {{- .Files.Get "files/init-assets.py" | nindent 4 }}
+  rds-ca.pem: |
+    {{- .Files.Get "files/rds-ca.pem" | nindent 4 }}
