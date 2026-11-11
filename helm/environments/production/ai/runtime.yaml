@@ -29,7 +29,7 @@ env:
   AWS_DEFAULT_REGION: ap-northeast-2
   AWS_EC2_METADATA_DISABLED: "true"
   PGSSLMODE: verify-full
-  PGSSLROOTCERT: /shared/rds-ca.pem
+  PGSSLROOTCERT: /shared/tls/rds-ca.pem
   ASSET_ROOT: /shared/assets
   SEARCH_RUNTIME_ROOT: /runtime
 search:

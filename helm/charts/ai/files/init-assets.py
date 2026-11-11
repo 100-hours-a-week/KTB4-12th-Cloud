@@ -55,8 +55,11 @@ def main():
         temporary.replace(target)
         print("자산 검증 완료:", item["path"], "/ bytes:", size)
     (root / "media").mkdir(exist_ok=True)
-    shutil.copyfile("/bootstrap/rds-ca.pem", root / "rds-ca.pem")
-    os.chmod(root / "rds-ca.pem", 0o444)
+    # 기존 DB 접속 URL의 sslrootcert 경로와 동일하게 배치.
+    tls = root / "tls"
+    tls.mkdir(exist_ok=True)
+    shutil.copyfile("/bootstrap/rds-ca.pem", tls / "rds-ca.pem")
+    os.chmod(tls / "rds-ca.pem", 0o444)
     print("AI_ASSETS_INITIALIZED — 모델 4개 검증 완료; media 디렉터리는 비어 있음")
 
 
