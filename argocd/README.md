@@ -4,10 +4,10 @@
 
 - 2026-11-12 기준 Argo CD 설치·Repository 연결·7개 App 수동 승계 및 전후 보존 확인 완료. 자동 동기화 활성화·Git 변경 자동 반영 검증은 대기.
 - 기존 수동 Helm 리소스를 승계한 상태. 앞으로 7개 앱의 배포 소유권은 Argo CD로 유지하고 수동 helm upgrade/rollback/uninstall과 혼용하지 않음.
-- 목표: 승인된 Git의 Helm values/Digest 변경 → Argo CD 감지 → Kubernetes 반영 → Health 확인.
+- 목표: 작업 브랜치 → develop 검증 → main PR 승인·머지 → Argo CD 감지 → Kubernetes 반영 → Health 확인.
 - ECR에 새 이미지가 생긴 것만으로는 배포하지 않음. Cloud의 해당 Digest 변경 PR 검토·머지가 릴리스 경계.
-- 초기 승계는 `feat/v3-argocd`에서 수동 Sync. 기본값은 이 재현 경로로 보존. Chart·현재 운영 설정·GitOps overlay의 develop 머지 확인 후 별도 production-automation.yaml로 자동 배포 활성화.
-- PR #124는 최초 fa7c0b3까지만 반영. 후속 3.0.1 Digest·Hikari 수정·AI Chart·스케줄러 및 Argo CD 코드는 이 후속 PR에 함께 포함. PR #124가 머지됐다는 사실만으로 현재 develop이 운영과 같다고 판단하지 않음.
+- 초기 승계는 `feat/v3-argocd`에서 수동 Sync. 기본값은 이 재현 경로로 보존. Chart·현재 운영 설정·main 기준 수정의 main 머지 확인 후 별도 production-automation.yaml로 자동 배포 활성화.
+- PR #125·#126으로 기존 구성을 develop·main에 승격. 운영 자동화 기준은 main이며 develop 머지는 운영 배포 승인이 아님. 이 수정의 main 반영과 실제 Application 전환은 별도 확인 필요.
 
 ## 생성 파일과 설정 의미
 
@@ -15,11 +15,11 @@
 | --- | --- |
 | controller-values.yaml | Argo CD 제어 도구 설치값. 공식 argo-cd Chart 10.17.2 / app v3.6.1 기준 |
 | charts/production-apps | AppProject와 BE 6개·AI 1개 Application 정의 |
-| production-automation.yaml | develop 기준 자동 Sync·selfHeal 활성화 overlay. 머지·값 대조 후 명시적 적용 |
+| production-automation.yaml | main 기준 자동 Sync·selfHeal 활성화 overlay. 머지·값 대조 후 명시적 적용 |
 | ../helm/environments/production/gitops/backend.yaml | 기존 수동 `--set replicas=1`을 Git 희망 상태로 명시 |
 | ../helm/environments/production/gitops/ai.yaml | 기존 AI replicas=1·launchApproved=true 승계 |
 | ../scripts/validate-v3-gitops.rb | 로컬 렌더 및 선택적 읽기 전용 기존 Helm 비교 |
-| ../.github/workflows/validate-v3-gitops.yml | PR·해당 작업 브랜치·develop의 렌더 검사. AWS/CD 변경 없음 |
+| ../.github/workflows/validate-v3-gitops.yml | PR·해당 작업 브랜치·develop·main의 렌더 검사. AWS/CD 변경 없음 |
 
 ```yaml
 # 실제 Application의 핵심 설정. 전체 정의는 charts/production-apps/templates/applications.yaml 참조.
@@ -100,11 +100,11 @@ AI의 desired Pod template이 달라지면 Search 단일 실행 전략 때문에
 
 ## 단계 4 — 자동 CD 활성화·완료 기준
 
-- Cloud develop에 실제 Chart·values·현재 승인 Digest가 모두 존재하는지 먼저 확인. 작업 브랜치 삭제나 merge 여부를 확인하지 않고 revision만 바꾸지 않음.
-- 수동 승계 기본값은 유지하고 production-automation.yaml의 revision=develop/automatedSync=true를 코드 리뷰. 활성화 시 마지막 values로 병합.
+- Cloud main에 실제 Chart·values·현재 승인 Digest와 main 기준 자동화 수정이 모두 존재하는지 먼저 확인. 작업 브랜치 삭제나 merge 여부를 확인하지 않고 revision만 바꾸지 않음.
+- 수동 승계 기본값은 유지하고 production-automation.yaml의 revision=main/automatedSync=true를 코드 리뷰. 활성화 시 마지막 values로 병합. 자동 동기화는 main에서만 허용하며 develop·작업 브랜치 지정은 렌더 단계에서 거부.
 - bootstrap render 예시: `helm template v3-production-apps argocd/charts/production-apps --namespace argocd --values argocd/production-automation.yaml`. 생성된 App 정의의 targetRevision·enabled·selfHeal·prune 및 리소스 범위 확인 후 dry run·실적용을 분리.
 - bootstrap Chart를 사용자 수동으로 다시 렌더·적용. 이 bootstrap 정의 자체는 self-managing App이 아니므로 Git 변경만으로 Application spec이 바뀌지는 않음. 앱의 Chart/values 자동 배포와 bootstrap 변경 적용은 별개.
-- 그 뒤부터 develop의 앱 Chart/values/Digest 변경을 Argo CD가 자동 적용, selfHeal 활성. prune은 계속 false. 설정 없는 리소스의 자동 삭제는 이번 목표에서 제외.
+- 그 뒤부터 main의 앱 Chart/values/Digest 변경을 Argo CD가 자동 적용, selfHeal 활성. develop은 검증 단계이며 운영 자동 배포 대상에서 제외. prune은 계속 false. 설정 없는 리소스의 자동 삭제는 이번 목표에서 제외.
 - Application syncOptions에도 Prune=false를 명시해 수동 Sync의 기본 삭제 허용 옵션까지 제한. Force/Replace/ServerSideApply는 추가하지 않음.
 - 무해한 테스트는 Payment의 최상위 Deployment metadata에 한정한 승인된 Git 변경으로 시작. Pod template은 바꾸지 않고 commit SHA·감지/반영 시각·Synced/Healthy·기존 Pod UID 유지 기록. 되돌림 PR까지 같은 경로로 검증.
 - 이미지 배포 검증은 다음 승인 릴리스의 Digest 변경→자동 Sync→새 Pod Ready→공개 서비스 확인으로 수행. 자동 Git 반영 확인과 실제 이미지 배포 성공을 구분.

@@ -128,16 +128,19 @@ begin
     name = app.dig('metadata', 'name')
     manual = applications.find { |o| o.dig('metadata', 'name') == name }
     expected = Marshal.load(Marshal.dump(manual))
-    expected['spec']['source']['targetRevision'] = 'develop'
+    expected['spec']['source']['targetRevision'] = 'main'
     expected['spec']['syncPolicy']['automated']['enabled'] = true
     expected['spec']['syncPolicy']['automated']['selfHeal'] = true
     require_state(app == expected, "#{name}: 자동화 overlay가 revision/auto/selfHeal 외 설정 변경")
   end
-  puts 'AUTO_OVERLAY: develop / enabled=true / selfHeal=true / prune=false / runtime inputs unchanged'
-  # 작업 브랜치 자동화는 여전히 거부합니다.
-  _out, _err, bad = Open3.capture3('helm', 'template', 'v3-production-apps', wrapper,
-                                '--set', 'revision=feat/v3-argocd', '--set', 'automatedSync=true', chdir: ROOT)
-  require_state(!bad.success?, '작업 브랜치 자동 동기화 차단 실패')
+  puts 'AUTO_OVERLAY: main / enabled=true / selfHeal=true / prune=false / runtime inputs unchanged'
+  # 개발·작업 브랜치가 운영 자동 배포 기준이 되는 실수를 차단합니다.
+  %w[develop feat/v3-argocd].each do |revision|
+    _out, _err, bad = Open3.capture3('helm', 'template', 'v3-production-apps', wrapper,
+                                  '--set', "revision=#{revision}", '--set', 'automatedSync=true', chdir: ROOT)
+    require_state(!bad.success?, "#{revision}: 운영 자동 동기화 차단 실패")
+  end
+  puts 'NON_MAIN_AUTO_SYNC: develop / feat/v3-argocd rejected'
   puts "GITOPS_CHECK_FINISHED: Applications=7 / managedResources=#{all_objects.length} / liveRead=#{ARGV.include?('--live')}"
 rescue StandardError => e
   # 프로그램 자체의 예외 메시지에는 파싱 중 원문이 포함될 수 있어 외부 명령 이외도 주의합니다.

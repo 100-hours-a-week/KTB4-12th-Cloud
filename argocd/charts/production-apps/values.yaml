@@ -1,5 +1,5 @@
 repository: https://github.com/100-hours-a-week/KTB4-12th-Cloud.git
-# 이 브랜치가 원격에 게시된 뒤에만 조회 가능. PR 머지 후 develop으로 변경합니다.
+# 최초 수동 승계 재현용 기준. 운영 활성화 시 production-automation.yaml의 main으로 덮어씁니다.
 revision: feat/v3-argocd
 project: seonjalal-v3-production
 destination:

@@ -1,5 +1,5 @@
 # 7개 App 수동 승계·전후 보존 확인 후 사용하는 운영 활성화 overlay.
-# 이 파일과 현재 BE/AI Chart·values가 develop에 머지된 뒤에만 bootstrap에 적용합니다.
+# 이 파일과 현재 BE/AI Chart·values가 main에 머지된 뒤에만 bootstrap에 적용합니다.
 # Git에 이 파일을 게시하는 것만으로 기존 Application spec이 자동 변경되지는 않습니다.
-revision: develop
+revision: main
 automatedSync: true
