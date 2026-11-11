@@ -54,4 +54,3 @@ applications:
     valueFiles:
       - ../../environments/production/ai/runtime.yaml
       - ../../environments/production/gitops/ai.yaml
-

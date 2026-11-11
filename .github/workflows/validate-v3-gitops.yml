@@ -37,4 +37,3 @@ jobs:
         run: |
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
-

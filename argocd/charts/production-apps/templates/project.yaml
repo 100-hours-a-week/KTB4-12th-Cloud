@@ -17,4 +17,3 @@ spec:
     - {group: "", kind: ConfigMap}
     - {group: "", kind: Service}
     - {group: policy, kind: PodDisruptionBudget}
-
