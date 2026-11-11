@@ -38,7 +38,7 @@ Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사�
 ## 준비 상태와 실행 조건
 
 - 현재 `replicas: 0`. 기본 운영 목표는 서비스별 2개이며 현재 실행 중이라는 의미가 아님
-- Main 3.0.0 Digest는 이미 발행된 이미지의 참조값. Sentinel·STS가 반영된 새 Digest로 교체 필요
+- Main·Payment 3.0.1의 사용자 확인 ECR Image Index Digest로 고정. Main은 Sentinel 코드·STS 빌드 확인 기준으로 이미지 조건 반영, 실제 EKS 연결 검증은 별도
 - `replicas > 0`은 `database.schemaReviewed: true` 필요
 - Main은 추가로 `image.mainRuntimeCompatible: true` 필요
 - 위 두 값은 확인 결과를 기록하는 수동 선언. 코드·DB·실제 접속을 자동 검증하는 기능이 아님

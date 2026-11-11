@@ -1,8 +1,9 @@
 component: main
 image:
-  # 사용자 확인 3.0.0 참조값. Sentinel/STS 미반영이므로 교체 전 기동 금지.
-  digest: sha256:da6c9514f3ea542bb4136a6a9a3934484547a878d52687650b4a3a0af910c60b
-  mainRuntimeCompatible: false
+  # Sentinel·STS 반영 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
+  digest: sha256:4bff8ce0b6e372076f59a48280d7981ac95a7c01710ebbda9a7642e584832e11
+  # 릴리스 코드·빌드 확인 기준이며, 실제 EKS 연결 검증 완료를 의미하지 않음.
+  mainRuntimeCompatible: true
 serviceAccount:
   name: main-backend
   automountServiceAccountToken: true
