@@ -9,7 +9,7 @@ on:
       - 'scripts/test-v3-gitops-errors.rb'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
-    branches: [develop, feat/v3-argocd]
+    branches: [main, develop, feat/v3-argocd]
     paths:
       - 'argocd/**'
       - 'helm/**'
