@@ -1,0 +1,41 @@
+# 공용 관측 서버 전용. 업무 경고의 환경·구성요소가 일치할 때만 BE 채널로 전달.
+global:
+  resolve_timeout: 5m
+route:
+  receiver: unmatched
+  group_by: [cluster, environment, alertname, vhost, queue, exchange]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: backend-discord
+      matchers:
+        - 'cluster="seonjalal-v3"'
+        - 'environment="production"'
+        - 'component="payment-rabbitmq"'
+      routes:
+        # 실제 업무 장애 없이 전달 경로만 검증하는 예약 경고 이름.
+        # 이 설정은 경고를 생성하지 않으며 검증 발신 측의 종료 시각 제한 필요.
+        - receiver: backend-discord
+          matchers:
+            - 'alertname="V3MonitoringDeliveryCheck"'
+          group_by: [cluster, environment, alertname, verification_run]
+          group_wait: 5s
+          group_interval: 30s
+          repeat_interval: 1m
+receivers:
+  # 아직 라우팅 계약이 없는 다른 환경·구성요소의 알림은 BE 채널로 보내지 않음.
+  - name: unmatched
+  - name: backend-discord
+    discord_configs:
+      - webhook_url_file: /run/secrets/discord-webhook-url
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+        message: |-
+          환경: {{ .CommonLabels.cluster }} / {{ .CommonLabels.environment }}
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ .Annotations.description }}
+          {{ if .Labels.queue }}큐: {{ .Labels.queue }}{{ end }}
+          {{ if .Labels.exchange }}Exchange: {{ .Labels.exchange }}{{ end }}
+          {{ end }}

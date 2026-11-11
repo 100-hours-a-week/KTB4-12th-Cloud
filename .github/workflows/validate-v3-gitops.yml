@@ -8,6 +8,8 @@ on:
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/prepare-v3-alertmanager.py'
+      - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
     branches: [main, develop, feat/v3-argocd, feat/v3-monitoring-discord]
@@ -18,6 +20,8 @@ on:
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/prepare-v3-alertmanager.py'
+      - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   workflow_dispatch:
 permissions:
@@ -48,3 +52,16 @@ jobs:
             --volume "$RUNNER_TEMP/v3-agent:/check:ro" \
             --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
             check config --syntax-only --agent /check/prometheus.yml
+      # 실제 웹후크 대신 가짜 입력을 사용하며 외부 통신을 차단한 문법 검사.
+      - name: Validate Alertmanager config
+        run: |
+          mkdir -p "$RUNNER_TEMP/v3-alertmanager"
+          printf '%s\n' 'https://discord.com/api/webhooks/0/validation-placeholder' > "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url"
+          chmod 644 "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url"
+          docker run --rm --read-only --network none \
+            --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges:true \
+            --volume "$PWD/operations/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            --volume "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url:/run/secrets/discord-webhook-url:ro" \
+            --entrypoint /bin/amtool \
+            prom/alertmanager@sha256:58e117eabccebbff04e6643a3432d6315a2cc3a8c24ab5849bc628886bf08857 \
+            check-config /etc/alertmanager/alertmanager.yml
