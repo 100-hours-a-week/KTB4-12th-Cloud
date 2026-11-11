@@ -2,11 +2,12 @@
 
 ## 현재 범위
 
-- 로컬 구성 준비 단계. Argo CD 설치·Application 등록·Sync·자동 배포 검증 미실행.
-- 현재 운영: 수동 Helm 배포. 앱 CI의 ECR 발행 성공과 Kubernetes 자동 배포 성공은 별개.
+- 2026-11-12 기준 Argo CD 설치·Repository 연결·7개 App 수동 승계 및 전후 보존 확인 완료. 자동 동기화 활성화·Git 변경 자동 반영 검증은 대기.
+- 기존 수동 Helm 리소스를 승계한 상태. 앞으로 7개 앱의 배포 소유권은 Argo CD로 유지하고 수동 helm upgrade/rollback/uninstall과 혼용하지 않음.
 - 목표: 승인된 Git의 Helm values/Digest 변경 → Argo CD 감지 → Kubernetes 반영 → Health 확인.
 - ECR에 새 이미지가 생긴 것만으로는 배포하지 않음. Cloud의 해당 Digest 변경 PR 검토·머지가 릴리스 경계.
-- 초기 승계는 `feat/v3-argocd`에서 수동 Sync. Chart·설정의 develop 머지 확인 후 revision=develop, automatedSync=true 변경으로 자동 배포 활성화.
+- 초기 승계는 `feat/v3-argocd`에서 수동 Sync. 기본값은 이 재현 경로로 보존. Chart·현재 운영 설정·GitOps overlay의 develop 머지 확인 후 별도 production-automation.yaml로 자동 배포 활성화.
+- PR #124는 최초 fa7c0b3까지만 반영. 후속 3.0.1 Digest·Hikari 수정·AI Chart·스케줄러 및 Argo CD 코드는 이 후속 PR에 함께 포함. PR #124가 머지됐다는 사실만으로 현재 develop이 운영과 같다고 판단하지 않음.
 
 ## 생성 파일과 설정 의미
 
@@ -14,6 +15,7 @@
 | --- | --- |
 | controller-values.yaml | Argo CD 제어 도구 설치값. 공식 argo-cd Chart 10.17.2 / app v3.6.1 기준 |
 | charts/production-apps | AppProject와 BE 6개·AI 1개 Application 정의 |
+| production-automation.yaml | develop 기준 자동 Sync·selfHeal 활성화 overlay. 머지·값 대조 후 명시적 적용 |
 | ../helm/environments/production/gitops/backend.yaml | 기존 수동 `--set replicas=1`을 Git 희망 상태로 명시 |
 | ../helm/environments/production/gitops/ai.yaml | 기존 AI replicas=1·launchApproved=true 승계 |
 | ../scripts/validate-v3-gitops.rb | 로컬 렌더 및 선택적 읽기 전용 기존 Helm 비교 |
@@ -38,6 +40,7 @@ syncPolicy:
     allowEmpty: false
   syncOptions:
     - FailOnSharedResource=true
+    - Prune=false
 ```
 
 - 기존 Helm Release와 Application 이름 동일. annotation 추적으로 app.kubernetes.io/instance selector 보존.
@@ -98,9 +101,11 @@ AI의 desired Pod template이 달라지면 Search 단일 실행 전략 때문에
 ## 단계 4 — 자동 CD 활성화·완료 기준
 
 - Cloud develop에 실제 Chart·values·현재 승인 Digest가 모두 존재하는지 먼저 확인. 작업 브랜치 삭제나 merge 여부를 확인하지 않고 revision만 바꾸지 않음.
-- charts/production-apps/values.yaml의 revision을 develop으로, automatedSync를 true로 변경. 두 값의 변경은 코드 리뷰 대상으로 유지.
-- bootstrap Chart를 사용자 수동으로 다시 렌더·적용. 이 bootstrap 정의 자체는 self-managing App이 아니므로 Git 변경만으로 Application spec이 바뀌지는 않음.
+- 수동 승계 기본값은 유지하고 production-automation.yaml의 revision=develop/automatedSync=true를 코드 리뷰. 활성화 시 마지막 values로 병합.
+- bootstrap render 예시: `helm template v3-production-apps argocd/charts/production-apps --namespace argocd --values argocd/production-automation.yaml`. 생성된 App 정의의 targetRevision·enabled·selfHeal·prune 및 리소스 범위 확인 후 dry run·실적용을 분리.
+- bootstrap Chart를 사용자 수동으로 다시 렌더·적용. 이 bootstrap 정의 자체는 self-managing App이 아니므로 Git 변경만으로 Application spec이 바뀌지는 않음. 앱의 Chart/values 자동 배포와 bootstrap 변경 적용은 별개.
 - 그 뒤부터 develop의 앱 Chart/values/Digest 변경을 Argo CD가 자동 적용, selfHeal 활성. prune은 계속 false. 설정 없는 리소스의 자동 삭제는 이번 목표에서 제외.
+- Application syncOptions에도 Prune=false를 명시해 수동 Sync의 기본 삭제 허용 옵션까지 제한. Force/Replace/ServerSideApply는 추가하지 않음.
 - 무해한 테스트는 Payment의 최상위 Deployment metadata에 한정한 승인된 Git 변경으로 시작. Pod template은 바꾸지 않고 commit SHA·감지/반영 시각·Synced/Healthy·기존 Pod UID 유지 기록. 되돌림 PR까지 같은 경로로 검증.
 - 이미지 배포 검증은 다음 승인 릴리스의 Digest 변경→자동 Sync→새 Pod Ready→공개 서비스 확인으로 수행. 자동 Git 반영 확인과 실제 이미지 배포 성공을 구분.
 - Argo CD의 automated sync는 실패 이미지의 자동 Rollback 보장 기능이 아님. 기본 복구는 Git의 잘못된 변경을 revert한 커밋으로 수정. 자동 동기화 활성 상태의 수동 Helm rollback은 다시 Git 상태로 덮일 수 있음.

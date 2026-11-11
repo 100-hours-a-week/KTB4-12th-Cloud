@@ -32,6 +32,7 @@ spec:
       allowEmpty: false
     syncOptions:
       - FailOnSharedResource=true
+      - Prune=false
       # Force/Replace/SSA 및 namespace 자동 생성 없이 기존 리소스 patch부터 검토합니다.
     retry:
       limit: 2

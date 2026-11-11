@@ -74,7 +74,7 @@ begin
     require_state(auto['prune'] == false && auto['allowEmpty'] == false, "#{name}: 자동 삭제 금지 필요")
     require_state(auto['enabled'] == values['automatedSync'] && auto['selfHeal'] == values['automatedSync'], "#{name}: 동기화 모드 불일치")
     options = spec.dig('syncPolicy', 'syncOptions')
-    require_state(options == ['FailOnSharedResource=true'], "#{name}: 파괴적 Sync 옵션 또는 소유권 경계 변경")
+    require_state(options == ['FailOnSharedResource=true', 'Prune=false'], "#{name}: 파괴적 Sync 옵션 또는 소유권 경계 변경")
     chart = app.fetch('chartPath')
     files = app.fetch('valueFiles').map { |f| Pathname.new(File.join(chart, f)).cleanpath.to_s }
     args = files.flat_map { |f| ['--values', f] }
@@ -119,8 +119,22 @@ begin
     puts "#{name}: 렌더·replicas=1·Digest·selector·실행 경계 정상#{ARGV.include?('--live') ? ' / 저장 Helm manifest 동일' : ''}"
   end
   require_state(all_objects.map { |o| identity(o) }.uniq.length == all_objects.length, 'Application 간 공유 리소스 중복')
-  # 미래 자동 동기화 모드도 렌더하며, 작업 브랜치에서 자동화하는 잘못된 조합은 거부합니다.
-  run('helm', 'template', 'v3-production-apps', wrapper, '--namespace', 'argocd', '--set', 'revision=develop', '--set', 'automatedSync=true')
+  # 실제 운영 overlay를 검사해 문서와 실적용 값이 다른 경우를 차단합니다.
+  automatic = docs(run('helm', 'template', 'v3-production-apps', wrapper, '--namespace', 'argocd',
+                       '--values', 'argocd/production-automation.yaml'))
+  auto_apps = automatic.select { |o| o['kind'] == 'Application' }
+  require_state(auto_apps.length == 7, '운영 자동화 Application 수 불일치')
+  auto_apps.each do |app|
+    name = app.dig('metadata', 'name')
+    manual = applications.find { |o| o.dig('metadata', 'name') == name }
+    expected = Marshal.load(Marshal.dump(manual))
+    expected['spec']['source']['targetRevision'] = 'develop'
+    expected['spec']['syncPolicy']['automated']['enabled'] = true
+    expected['spec']['syncPolicy']['automated']['selfHeal'] = true
+    require_state(app == expected, "#{name}: 자동화 overlay가 revision/auto/selfHeal 외 설정 변경")
+  end
+  puts 'AUTO_OVERLAY: develop / enabled=true / selfHeal=true / prune=false / runtime inputs unchanged'
+  # 작업 브랜치 자동화는 여전히 거부합니다.
   _out, _err, bad = Open3.capture3('helm', 'template', 'v3-production-apps', wrapper,
                                 '--set', 'revision=feat/v3-argocd', '--set', 'automatedSync=true', chdir: ROOT)
   require_state(!bad.success?, '작업 브랜치 자동 동기화 차단 실패')
