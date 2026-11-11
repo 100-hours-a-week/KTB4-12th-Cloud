@@ -35,6 +35,15 @@ helm template member-service helm/charts/backend --namespace production \
 다른 Main 서비스는 마지막 values와 Release 이름을 동일 서비스 이름으로 변경.
 Payment는 common.yaml과 payment-server.yaml만 사용하고 main.yaml은 사용하지 않음.
 
+### 자동 작업 실행 주체
+
+- `recommendation-service.yaml`은 공통 스케줄링·프로파일링 MQ 발행·결과 소비 활성화 설정 포함. 별도 임시 values 파일 없이 마지막에 병합
+- 공통 스케줄링은 프로파일링 외 알림 Outbox·상품 조회 집계·결제 재조정·야간 만료/정리 작업도 포함. 나머지 Main Release는 비활성 유지
+- 현재 작업 실행 주체는 recommendation-service 1개 Pod. 이 Release의 복제 수 증가 전 작업별 중복 실행 방지 조건 별도 검토 필요
+- 최초 활성화 전 기존 V2 작업 중지 및 진행 중 HTTP 프로파일링 요청 인계 확인 필요
+- `backend-runtime` Secret은 공통 인증 10개와 SMTP 7개 키 포함. SMTP 값은 Secret에서 주입하고 저장소에 기록하지 않음
+- `replicas: 0` 기본값 유지. 실제 기동 시 `--set replicas=1` 필요
+
 ## 준비 상태와 실행 조건
 
 - 현재 `replicas: 0`. 기본 운영 목표는 서비스별 2개이며 현재 실행 중이라는 의미가 아님
