@@ -93,7 +93,7 @@ begin
     containers = deployment.dig('spec', 'template', 'spec', 'containers')
     require_state(containers.all? { |c| c['image'].match?(/@sha256:[0-9a-f]{64}\z/) }, "#{name}: Image Digest 고정 필요")
     if MAIN.include?(name)
-      require_state(containers.first['image'].end_with?('@sha256:e4b71d4de5f2cbb3cd62b1a7a447ef09b9043316dd29648fb739687f0998c6c8'), "#{name}: 검토된 Main 이미지 불일치")
+      require_state(containers.first['image'].end_with?('@sha256:35597c7693fc63fccf16d74a033cf832fabf5d4aec1147076e9bc1e5781d7551'), "#{name}: 검토된 Main 이미지 불일치")
       require_state(policies.first.dig('metadata', 'annotations', 'argocd.argoproj.io/sync-wave') == '-1', "#{name}: 정책 선적용 누락")
       env = objects.find { |o| o['kind'] == 'ConfigMap' && o.dig('metadata', 'name') == "#{name}-runtime" }.fetch('data')
       %w[SCHEDULING_ENABLED AI_PROFILE_AMQP_ENABLED AI_PROFILE_SCHEDULING_ENABLED AI_PROFILE_RESULT_CONSUMER_ENABLED].each do |flag|
@@ -105,7 +105,7 @@ begin
       strategy = deployment.dig('spec', 'strategy', 'rollingUpdate')
       require_state(strategy == {'maxSurge' => 0, 'maxUnavailable' => 1}, 'AI Search 단일 실행 교체 조건 변경')
     elsif name == 'payment-server'
-      require_state(containers.first['image'].end_with?('@sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a'), 'Payment 운영 이미지 변경 금지')
+      require_state(containers.first['image'].end_with?('@sha256:e5d0f7fe00b0636c8f701299ec0c596bbab6a462bf4305dc1e346a318a078d26'), 'Payment 승인된 3.0.3 이미지 불일치')
     end
     if ARGV.include?('--live')
       # helm get은 기존 수동 Release의 저장 manifest만 조회하며 서버를 변경하지 않습니다.
