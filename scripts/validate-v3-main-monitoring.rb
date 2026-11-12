@@ -29,7 +29,7 @@ begin
   enabled = ['--set', 'monitoring.enabled=true', '--set', 'monitoring.healthBridgeImageReviewed=true',
              '--set', "image.digest=sha256:#{'1' * 64}"]
   MAIN.each do |name|
-    before = objects(name)
+    before = objects(name, '--set', 'monitoring.enabled=false', '--set', 'monitoring.healthBridgeImageReviewed=false')
     after = objects(name, *enabled)
     check(before.length == 5 && after.length == 6, '기본 리소스 또는 정책 수 변경')
     check(before.none? { |o| o['kind'] == 'NetworkPolicy' }, '기본 정책 자동 추가')
@@ -56,7 +56,9 @@ begin
     check(data['MANAGEMENT_SERVER_ADDRESS'] == '0.0.0.0' && data['MANAGEMENT_SERVER_PORT'] == '8081',
           '관리 주소/포트 오류')
     check(data['HIKARI_MAX_POOL_SIZE'] == '5' && data['HIKARI_MIN_IDLE'] == '1', 'Hikari 연결 수 확대')
-    policy = after.find { |o| o['kind'] == 'NetworkPolicy' }.fetch('spec')
+    policy_object = after.find { |o| o['kind'] == 'NetworkPolicy' }
+    check(policy_object.dig('metadata', 'annotations', 'argocd.argoproj.io/sync-wave') == '-1', '접근 정책 선적용 누락')
+    policy = policy_object.fetch('spec')
     check(policy['podSelector']['matchLabels'] == dep.dig('spec', 'selector', 'matchLabels'), '정책 대상 확대')
     check(policy['policyTypes'] == ['Ingress'] && !policy.key?('egress'), '업무 egress 변경')
     check(policy['ingress'] == [
@@ -64,12 +66,13 @@ begin
       {'from' => [{'podSelector' => {'matchLabels' => {'app.kubernetes.io/name' => 'v3-metrics-agent'}}}],
        'ports' => [{'protocol' => 'TCP', 'port' => 8081}]}
     ], '업무 접근 보존·동일 namespace 수집기 제한 오류')
-    check(!render(name, '--set', 'monitoring.enabled=true')[2].success?, '기존 이미지 활성화 가드 우회')
+    check(!render(name, '--set', 'monitoring.enabled=true', '--set', 'monitoring.healthBridgeImageReviewed=false')[2].success?, '미검토 이미지 활성화 가드 우회')
     check(!render(name, *enabled, '--set', 'monitoring.healthBridgeImageReviewed=false')[2].success?,
           '미검토 이미지 활성화 가드 우회')
   end
   check(!render(MAIN.first, '--set', 'monitoring.enabled=true', '--set',
-        'monitoring.healthBridgeImageReviewed=true')[2].success?, '기존 Digest를 검토 플래그로 우회')
+        'monitoring.healthBridgeImageReviewed=true', '--set',
+        'image.digest=sha256:4bff8ce0b6e372076f59a48280d7981ac95a7c01710ebbda9a7642e584832e11')[2].success?, '기존 Digest를 검토 플래그로 우회')
   check(!render('payment-server', *enabled, payment: true)[2].success?, 'Payment 모니터링 허용')
   check(!render(MAIN.first, *enabled, '--set', 'name=unknown-service')[2].success?, 'Main 범위 확대')
   check(!render(MAIN.first, *enabled, '--set', 'env.SPRING_PROFILES_INCLUDE=unknown')[2].success?,
@@ -78,7 +81,11 @@ begin
   check(secret['spec']['data'] == [{'secretKey' => 'password', 'remoteRef' => {
     'key' => 'seonjalal/v3/production/backend-runtime', 'property' => 'MONITORING_PASSWORD'}}],
     '단일 인증 키 투영 범위 변경')
-  puts 'MAIN_MONITORING_CHECK: Main=5 / default disabled / old image and Payment rejected'
+  check(YAML.load_file(File.join(ROOT, 'helm/charts/backend/values.yaml')).dig('monitoring', 'enabled') == false, 'Chart 기본 활성화 금지')
+  MAIN.each do |name|
+    check(objects(name).length == 6, '운영 Main 활성화 누락')
+  end
+  puts 'MAIN_MONITORING_CHECK: Main=5 / chart default disabled / production enabled / old image and Payment rejected'
   puts 'CONTRACT_CHECK: app probes and Service preserved / Hikari 5:1 / Agent-only management ingress'
   puts 'STATIC_ONLY: 운영 비밀번호·CNI 차단·새 이미지·실제 수집 미검증'
 rescue StandardError => e

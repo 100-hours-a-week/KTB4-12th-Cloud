@@ -5,6 +5,9 @@ kind: NetworkPolicy
 metadata:
   name: {{ include "backend.name" . }}-monitoring
   namespace: {{ .Release.Namespace }}
+  annotations:
+    # 관리 포트를 열 새 Deployment보다 접근 정책을 먼저 적용.
+    argocd.argoproj.io/sync-wave: "-1"
   labels:
     {{- include "backend.labels" . | nindent 4 }}
 spec:
