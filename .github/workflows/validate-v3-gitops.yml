@@ -52,6 +52,7 @@ jobs:
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
           ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
+          ruby scripts/validate-v3-monitoring.rb --write-main-config "$RUNNER_TEMP/v3-agent-main/prometheus.yml"
       # 모의 Docker로 단일 TSDB writer·복구 순서 검사. 실제 서비스/네트워크 호출 없음.
       - name: Validate Redis dashboard JSON
         run: python3 -m json.tool operations/monitoring/grafana/redis.json > /dev/null
@@ -63,6 +64,11 @@ jobs:
           chmod 644 "$RUNNER_TEMP/v3-agent/prometheus.yml"
           docker run --rm --read-only --network none \
             --volume "$RUNNER_TEMP/v3-agent:/check:ro" \
+            --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
+            check config --syntax-only --agent /check/prometheus.yml
+          chmod 644 "$RUNNER_TEMP/v3-agent-main/prometheus.yml"
+          docker run --rm --read-only --network none \
+            --volume "$RUNNER_TEMP/v3-agent-main:/check:ro" \
             --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
             check config --syntax-only --agent /check/prometheus.yml
       # 실제 웹후크 대신 가짜 입력을 사용하며 외부 통신을 차단한 문법 검사.

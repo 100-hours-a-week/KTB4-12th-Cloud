@@ -32,3 +32,15 @@ EKS RabbitMQ를 수집해 기존 공용 Prometheus로 remote_write 전송. 기�
 - https://prometheus.io/docs/prometheus/latest/prometheus_agent/
 - https://prometheus.io/docs/prometheus/latest/configuration/configuration/
 - https://www.rabbitmq.com/docs/prometheus
+
+## Main JVM 수집 연결
+
+- `main.enabled` 기본값 false. 기존 RabbitMQ·Redis 수집과 분리해 명시적 활성화.
+- Main Health 호환 이미지와 8081 `management` 포트가 준비된 5개 Main Release만 수집. Payment·AI 제외.
+- 기존 Gift/JVM 쿼리에 맞춰 job=`spring`, instance=`Pod이름:8081`, service·pod·namespace 라벨 유지.
+- `v3-main-monitoring` Secret의 password 키만 읽기 전용 파일로 마운트. 사용자명 prometheus. Agent에 backend-runtime 전체 Secret이나 Secret 조회 RBAC를 부여하지 않음.
+- 활성화 전 Secret 32자 이상 조건, Main 측 동일 비밀번호 주입, 관리 포트 네트워크 접근 범위 확인 필수. 관리 포트를 Service/Ingress/NodePort로 공개하지 않음.
+- Agent 교체 시 기존 Recreate 정책의 일시 수집 공백·미전송 WAL 유실 가능성 유지. 먼저 기존 17개 target과 전송 상태 기록 후 변경.
+- 완료 조건: 기존 17개 수집 보존, Main 현재 Pod 5개 UP, 중앙 JVM/Hikari/HTTP 지표와 기존 Gift/JVM 화면 확인. 실제 연결 전 정적 검증만으로 완료 판정 금지.
+
+설정 근거: [Prometheus scrape·Basic 인증·Kubernetes Pod discovery 공식 문서](https://prometheus.io/docs/prometheus/latest/configuration/configuration/).

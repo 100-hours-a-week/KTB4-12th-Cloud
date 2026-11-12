@@ -82,6 +82,46 @@ begin
     check(j['relabel_configs'].any? { |r| r['regex'] == 'v3-redis-exporter' && r['action'] == 'keep' },
           'exporter 외 Pod 수집')
   end
+  # Main을 추가해도 기존 6개 job·RBAC 보존. 잘못된 대상은 discovery 단계에서 제외.
+  main_docs = objects('--set', 'redis.enabled=true', '--set', 'main.enabled=true')
+  main_config = main_docs.find { |o| o['kind'] == 'ConfigMap' }.fetch('data').fetch('prometheus.yml')
+  main_jobs = YAML.safe_load(main_config, aliases: true).fetch('scrape_configs')
+  check(main_jobs.take(6) == redis_jobs, 'Main 활성화로 기존 수집 변경')
+  check(main_jobs.length == 7 && main_jobs.last['job_name'] == 'spring', 'Main job 범위 오류')
+  spring = main_jobs.last
+  check(spring['basic_auth'] == {'username' => 'prometheus',
+        'password_file' => '/etc/prometheus/main-credentials/password'}, '메트릭 인증 파일 계약 오류')
+  check(spring['metrics_path'] == '/actuator/prometheus', 'Main scrape 경로 오류')
+  check(spring['relabel_configs'].any? { |r| r['target_label'] == 'namespace' &&
+        r['source_labels'] == ['__meta_kubernetes_namespace'] }, '실제 namespace discovery 라벨 누락')
+  keep = spring.fetch('relabel_configs').select { |r| r['action'] == 'keep' }
+  accepts = lambda do |component, service, container, port, phase|
+    labels = {
+      '__meta_kubernetes_pod_label_app_kubernetes_io_component' => component,
+      '__meta_kubernetes_pod_label_app_kubernetes_io_instance' => service,
+      '__meta_kubernetes_pod_container_name' => container,
+      '__meta_kubernetes_pod_container_port_name' => port,
+      '__meta_kubernetes_pod_phase' => phase
+    }
+    keep.all? { |r| Regexp.new("\\A(?:#{r.fetch('regex')})\\z").match?(r['source_labels'].map { |l| labels[l] }.join(';')) }
+  end
+  %w[member-service catalog-service gifting-service recommendation-service notification-service].each do |name|
+    check(accepts.call('main', name, 'main', 'management', 'Running'), '필수 Main 수집 누락')
+  end
+  [ ['payment', 'payment-server', 'payment', 'management', 'Running'],
+    ['main', 'unknown-service', 'main', 'management', 'Running'],
+    ['main', 'member-service', 'sidecar', 'management', 'Running'],
+    ['main', 'member-service', 'main', 'http', 'Running'],
+    ['main', 'member-service', 'main', 'management', 'Pending'] ].each do |row|
+    check(!accepts.call(*row), 'Payment/업무 포트/다른 Pod 수집 범위 침범')
+  end
+  main_dep = main_docs.find { |o| o['kind'] == 'Deployment' }
+  credential_volume = main_dep.dig('spec', 'template', 'spec', 'volumes').find { |v| v['name'] == 'main-credentials' }
+  check(credential_volume['secret'] == {'secretName' => 'v3-main-monitoring', 'defaultMode' => 288,
+        'items' => [{'key' => 'password', 'path' => 'password'}]}, '단일 비밀번호 projection 계약 오류')
+  check(main_docs.find { |o| o['kind'] == 'Role' } == role, 'Main 활성화로 Secret API 권한 확장')
+  check(!deployment.dig('spec', 'template', 'spec', 'volumes').any? { |v| v['name'] == 'main-credentials' },
+        '기본 비활성 상태에서 Secret 의존 추가')
   exporter_chart = 'helm/charts/redis-exporter'
   exporter_render = lambda do |*args|
     Open3.capture3('helm', 'template', 'v3-redis-exporter', exporter_chart,
@@ -115,16 +155,17 @@ begin
     check(!exporter_render.call(*args)[2].success?, 'exporter 실행 가드 우회')
   end
   if ARGV.any?
-    check(ARGV.length == 2 && ARGV[0] == '--write-config', '사용법: --write-config LOCAL_PATH')
+    check(ARGV.length == 2 && %w[--write-config --write-main-config].include?(ARGV[0]), '사용법: --write-config 또는 --write-main-config LOCAL_PATH')
     destination = File.expand_path(ARGV[1])
     FileUtils.mkdir_p(File.dirname(destination))
-    File.write(destination, config)
+    File.write(destination, ARGV[0] == '--write-main-config' ? main_config : config)
     File.chmod(0600, destination)
   end
   puts 'MONITORING_PLAN_CHECK: resources=5 / initialReplicas=0 / Pod discovery read-only'
   puts 'QUEUE_FILTER_CHECK: payment=10 / profiling=4 / report=4 / detailed queue_metrics=5 DLQs only'
   puts 'LAUNCH_GUARD_CHECK: unreviewed / missing Digest / example URL / duplicate Agent rejected'
   puts 'REDIS_BOUNDARY_CHECK: 7 isolated exporters / no database resources or RBAC / optional jobs preserve existing scrapes'
+  puts 'MAIN_BOUNDARY_CHECK: 5 Main services only / password file projection / existing jobs and RBAC preserved'
   puts 'READ_ONLY_STATIC: 실제 수집·remote_write·Discord 성공은 미검증'
 rescue StandardError => e
   warn e.message

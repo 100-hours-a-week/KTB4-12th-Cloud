@@ -13,6 +13,10 @@ vhost: gift
 redis:
   # Exporter 배포 검증 후 명시적으로 활성화. 기존 RabbitMQ 수집 기본값 보존.
   enabled: false
+main:
+  # Health 호환 이미지·인증 Secret·관리 포트 확인 후에만 활성화.
+  enabled: false
+  credentialsSecret: v3-main-monitoring
 scrapeInterval: 15s
 scrapeTimeout: 5s
 sampleLimit: 15000

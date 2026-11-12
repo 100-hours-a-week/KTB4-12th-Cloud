@@ -77,9 +77,20 @@ spec:
           volumeMounts:
             - {name: config, mountPath: /etc/prometheus, readOnly: true}
             - {name: wal, mountPath: /prometheus}
+            {{- if .Values.main.enabled }}
+            - {name: main-credentials, mountPath: /etc/prometheus/main-credentials, readOnly: true}
+            {{- end }}
       volumes:
         - name: config
           configMap: {name: {{ .Release.Name }}}
+        {{- if .Values.main.enabled }}
+        - name: main-credentials
+          secret:
+            secretName: {{ .Values.main.credentialsSecret }}
+            defaultMode: 0440
+            items:
+              - {key: password, path: password}
+        {{- end }}
         - name: wal
           # 일시 전송 버퍼. Pod 재생성 시 미전송 표본이 사라질 수 있음.
           emptyDir: {sizeLimit: {{ .Values.walSizeLimit }}}

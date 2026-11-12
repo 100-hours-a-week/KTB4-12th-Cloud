@@ -87,6 +87,25 @@
           "type": "boolean"
         }
       }
+    },
+    "main": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "credentialsSecret"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "credentialsSecret": {
+          "type": "string",
+          "enum": [
+            "v3-main-monitoring"
+          ]
+        }
+      }
     }
   }
 }
