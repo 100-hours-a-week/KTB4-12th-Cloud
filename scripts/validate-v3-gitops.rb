@@ -93,19 +93,27 @@ begin
     containers = deployment.dig('spec', 'template', 'spec', 'containers')
     require_state(containers.all? { |c| c['image'].match?(/@sha256:[0-9a-f]{64}\z/) }, "#{name}: Image Digest 고정 필요")
     if MAIN.include?(name)
-      require_state(containers.first['image'].end_with?('@sha256:35597c7693fc63fccf16d74a033cf832fabf5d4aec1147076e9bc1e5781d7551'), "#{name}: 검토된 Main 이미지 불일치")
+      require_state(containers.first['image'].end_with?('@sha256:da10e8b3615e5db5a3fb317c1bdd01047ade4c34c25a4a06bd5c76ef23c7a102'), "#{name}: 검토된 Main 이미지 불일치")
       require_state(policies.first.dig('metadata', 'annotations', 'argocd.argoproj.io/sync-wave') == '-1', "#{name}: 정책 선적용 누락")
       env = objects.find { |o| o['kind'] == 'ConfigMap' && o.dig('metadata', 'name') == "#{name}-runtime" }.fetch('data')
       %w[SCHEDULING_ENABLED AI_PROFILE_AMQP_ENABLED AI_PROFILE_SCHEDULING_ENABLED AI_PROFILE_RESULT_CONSUMER_ENABLED].each do |flag|
         expected = name == 'recommendation-service' ? 'true' : 'false'
         require_state(env[flag] == expected, "#{name}: #{flag} 실행 주체 변경")
       end
+      %w[REPORT_MQ_ENABLED REPORT_DISCORD_CONSUMER_ENABLED REPORT_SHEETS_CONSUMER_ENABLED OUTBOX_ENABLED].each do |flag|
+        expected = name == 'notification-service' ? 'true' : 'false'
+        require_state(env[flag] == expected, "#{name}: #{flag} 신고 실행 주체 변경")
+      end
+      if name == 'notification-service'
+        require_state(env['OUTBOX_SEARCH_RELAY_ENABLED'] == 'false', '신고 전용 프로세스의 검색 relay 금지')
+        require_state(env['GOOGLE_SHEET_ID'] == '1GY-Q_guTLsLVlV82F9UkPHIRIqNcj-B_Tdyg1Fi-6Jw' && env['GOOGLE_SHEET_TAB'] == '버그 제보', '검토한 Sheets 대상과 불일치')
+      end
     elsif name == 'ai-runtime'
       require_state(containers.map { |c| c['name'] }.sort == %w[chat profiler search], 'AI 통합 컨테이너 구성 변경')
       strategy = deployment.dig('spec', 'strategy', 'rollingUpdate')
       require_state(strategy == {'maxSurge' => 0, 'maxUnavailable' => 1}, 'AI Search 단일 실행 교체 조건 변경')
     elsif name == 'payment-server'
-      require_state(containers.first['image'].end_with?('@sha256:e5d0f7fe00b0636c8f701299ec0c596bbab6a462bf4305dc1e346a318a078d26'), 'Payment 승인된 3.0.3 이미지 불일치')
+      require_state(containers.first['image'].end_with?('@sha256:5741249e51fdf339b84a979d7309e215a0da5bc37e6a7bb4f05d68c35df8bf7c'), 'Payment 승인된 3.0.4 이미지 불일치')
     end
     if ARGV.include?('--live')
       # helm get은 기존 수동 Release의 저장 manifest만 조회하며 서버를 변경하지 않습니다.
