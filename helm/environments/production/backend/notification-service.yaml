@@ -1,2 +1,11 @@
-# 공통 Main 이미지·설정 사용, Service·Deployment 이름만 구분
+# 신고 처리만 이 서비스에서 활성화. 전역 정기 작업·상품 검색 relay는 제외.
 name: notification-service
+env:
+  REPORT_MQ_ENABLED: "true"
+  REPORT_DISCORD_CONSUMER_ENABLED: "true"
+  REPORT_SHEETS_CONSUMER_ENABLED: "true"
+  OUTBOX_ENABLED: "true"
+  OUTBOX_SEARCH_RELAY_ENABLED: "false"
+  SCHEDULING_ENABLED: "false"
+  GOOGLE_SHEET_ID: 1GY-Q_guTLsLVlV82F9UkPHIRIqNcj-B_Tdyg1Fi-6Jw
+  GOOGLE_SHEET_TAB: 버그 제보
