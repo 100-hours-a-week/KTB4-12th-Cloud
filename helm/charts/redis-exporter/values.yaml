@@ -1,0 +1,13 @@
+# 검토·Digest 확인 후에만 7개 exporter 기동. 기존 Redis 리소스 변경 없음.
+replicas: 0
+launchReviewed: false
+image:
+  repository: ghcr.io/oliver006/redis_exporter
+  # 사용자 registry 조회로 확인한 v1.93.0 OCI Image Index. 플랫폼별 manifest를 포함.
+  digest: sha256:6ca518a72f30f7f576ef92963de1b91d3c3f5fd3aeac949f878bfda183587820
+nodeSelector:
+  workload: system
+  kubernetes.io/os: linux
+resources:
+  requests: {cpu: 25m, memory: 32Mi}
+  limits: {cpu: 100m, memory: 64Mi}

@@ -1,0 +1,89 @@
+# BE main 5a32a6aa의 monitoring/payment-rabbitmq-alerts.yml 기반 운영 적용본.
+# 공용 서버의 환경 혼합 방지를 위한 selector/라벨과 빈 DLQ timestamp 보호 추가.
+groups:
+  - name: seonjalal-v3-payment-rabbitmq
+    rules:
+      - alert: PaymentRabbitDLQNotEmpty
+        expr: |
+          max by (cluster, environment, queue, vhost) (
+            rabbitmq_detailed_queue_messages{
+              cluster="seonjalal-v3",environment="production",job="rabbitmq-queues",
+              vhost="gift",queue=~"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]dlq$"
+            }
+          ) > 0
+        labels: &payment_labels
+          cluster: seonjalal-v3
+          environment: production
+          severity: warning
+          component: payment-rabbitmq
+        annotations:
+          summary: "결제 RabbitMQ DLQ에 메시지가 있습니다"
+          description: '{{ $labels.queue }}에 {{ $value }}개가 적체됐습니다. 원인을 확인하고 재처리 여부를 판단하세요.'
+      - alert: PaymentRabbitDLQNearExpiry
+        expr: |
+          (
+            time() - max by (cluster, environment, queue, vhost) (
+              rabbitmq_detailed_queue_head_message_timestamp{
+                cluster="seonjalal-v3",environment="production",job="rabbitmq-dlq-age",
+                vhost="gift",queue=~"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]dlq$"
+              }
+            )
+          ) > 25 * 24 * 60 * 60
+          and on (cluster, environment, queue, vhost)
+          (
+            max by (cluster, environment, queue, vhost) (
+              rabbitmq_detailed_queue_head_message_timestamp{
+                cluster="seonjalal-v3",environment="production",job="rabbitmq-dlq-age",
+                vhost="gift",queue=~"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]dlq$"
+              }
+            ) > 0
+          )
+        for: 5m
+        labels: *payment_labels
+        annotations:
+          summary: "결제 DLQ 메시지가 보관 만료에 가까워졌습니다"
+          description: '{{ $labels.queue }}의 가장 오래된 메시지가 25일 이상 보관됐습니다. 30일 TTL 만료 전에 확인하세요.'
+      - alert: PaymentRabbitQueueWithoutConsumer
+        expr: |
+          max by (cluster, environment, queue, vhost) (
+            rabbitmq_detailed_queue_messages_ready{
+              cluster="seonjalal-v3",environment="production",job="rabbitmq-queues",
+              vhost="gift",queue=~"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$"
+            }
+          ) > 0
+          and on (cluster, environment, queue, vhost)
+          (
+            max by (cluster, environment, queue, vhost) (
+              rabbitmq_detailed_queue_consumers{
+                cluster="seonjalal-v3",environment="production",job="rabbitmq-queues",
+                vhost="gift",queue=~"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$"
+              }
+            ) == 0
+          )
+        for: 2m
+        labels: *payment_labels
+        annotations:
+          summary: "대기 메시지가 있지만 Consumer가 없습니다"
+          description: '{{ $labels.queue }}에 ready 메시지가 있고 Consumer가 0명입니다. 기능 활성화와 배포 상태를 확인하세요.'
+      - alert: PaymentRabbitPublisherReturned
+        expr: |
+          max by (cluster, environment, exchange, vhost) (
+            increase(rabbitmq_detailed_exchange_messages_unroutable_returned_total{
+              cluster="seonjalal-v3",environment="production",job="rabbitmq-queues",
+              vhost="gift",exchange="payment.events"
+            }[5m])
+          ) > 0
+        labels: *payment_labels
+        annotations:
+          summary: "결제 이벤트가 라우팅되지 않아 반환됐습니다"
+          description: "payment.events에서 최근 5분 내 미라우팅 Return이 발생했습니다. Exchange 바인딩을 확인하세요."
+      - alert: PaymentRabbitDeliveryLimitExceeded
+        expr: |
+          increase(rabbitmq_global_messages_dead_lettered_delivery_limit_total{
+            cluster="seonjalal-v3",environment="production",job="rabbitmq",
+            queue_type="rabbit_quorum_queue",dead_letter_strategy="at_least_once"
+          }[5m]) > 0
+        labels: *payment_labels
+        annotations:
+          summary: "RabbitMQ 재전달 한도를 넘긴 메시지가 있습니다"
+          description: "최근 5분 내 delivery-limit 초과 발생. 노드 단위 지표이며 결제 큐로 단정할 수 없으므로 DLQ 깊이로 대상 큐를 확인하세요."

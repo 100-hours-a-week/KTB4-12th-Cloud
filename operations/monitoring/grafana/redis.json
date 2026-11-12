@@ -1,0 +1,505 @@
+{
+  "uid": "seonjalal-v3-redis",
+  "title": "Seonjalal V3 / Redis & Sentinel",
+  "description": "고정 대상7개 Redis 운영 지표. exporter 및 수집 실검증 후 사용.",
+  "schemaVersion": 39,
+  "version": 0,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "tags": [
+    "seonjalal-v3",
+    "redis",
+    "sentinel"
+  ],
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "Redis / Sentinel 지표 해석",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**대상: Redis auth 2개·product 2개 / Sentinel 3개.** up은 exporter 스크랩 성공, redis_up은 해당 Redis/Sentinel 연결 성공입니다. No data는 정상 0이 아닙니다.\n\n메모리 비율은 Redis maxmemory 기준이며 Pod 메모리/OOM 여유와 다릅니다. maxmemory=0은 비율에서 제외합니다. 캐시 적중률은 Redis keyspace lookup 기준이며 HTTP/업무 성공률이 아닙니다. 조회가 없으면 비율을 0으로 채우지 않습니다. 복제 offset은 바이트 위치이며 초 단위 지연/정합성 검증값이 아닙니다."
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Exporter 수집 / Redis 연결 상태",
+      "description": "각 지표 1=성공/0=실패. 시계열 부재는 별도 확인. failover 검증을 대신하지 않음.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{cluster=\"seonjalal-v3\",environment=\"production\",job=~\"redis|redis-sentinel\"}",
+          "legendFormat": "scrape {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "redis_up{cluster=\"seonjalal-v3\",environment=\"production\",job=~\"redis|redis-sentinel\"}",
+          "legendFormat": "redis {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "데이터 노드 메모리",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}",
+          "legendFormat": "used {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "redis_memory_max_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}",
+          "legendFormat": "maxmemory {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "maxmemory 대비 사용률",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_memory_used_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"} / (redis_memory_max_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"} > 0) * 100",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "연결된 클라이언트",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_connected_clients{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "처리 명령 / 초",
+      "description": "exporter 자체 조회 명령도 포함할 수 있음. 업무 요청 RPS와 구분.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_commands_processed_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}[$__rate_interval])",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Keyspace 적중률",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_keyspace_hits_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}[$__rate_interval]) / ((rate(redis_keyspace_hits_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}[$__rate_interval]) + rate(redis_keyspace_misses_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}[$__rate_interval])) > 0) * 100",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Eviction / 초",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_evicted_keys_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}[$__rate_interval])",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "복제 offset",
+      "description": "바이트 위치 비교. 역할과 연결 상태를 함께 확인. 샘플 시각 차이 존재하며 직접적인 시간 지연값 아님.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_master_repl_offset{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}",
+          "legendFormat": "master offset {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "redis_slave_repl_offset{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis\"}",
+          "legendFormat": "replica offset {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Sentinel 감시 master 수",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_sentinel_masters{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis-sentinel\"}",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Sentinel quorum 조회 / TILT",
+      "description": "quorum=1 성공/0 실패, TILT=0 정상모드/1 TILT. 실제 failover 성공 검증은 별도.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "redis_sentinel_master_ckquorum_status{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis-sentinel\"}",
+          "legendFormat": "quorum {{instance}} / {{master_name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "redis_sentinel_tilt{cluster=\"seonjalal-v3\",environment=\"production\",job=\"redis-sentinel\"}",
+          "legendFormat": "tilt {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

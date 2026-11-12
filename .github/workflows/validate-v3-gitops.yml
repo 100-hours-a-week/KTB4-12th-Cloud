@@ -7,15 +7,31 @@ on:
       - 'scripts/validate-v3-gitops.rb'
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
+      - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/validate-v3-main-monitoring.rb'
+      - 'scripts/prepare-v3-alertmanager.py'
+      - 'scripts/prepare-v3-prometheus.py'
+      - 'scripts/prepare-v3-prometheus-transition.py'
+      - 'scripts/lib/v3_prometheus_transition.py'
+      - 'scripts/test_v3_prometheus_transition.py'
+      - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   push:
-    branches: [main, develop, feat/v3-argocd]
+    branches: [main, develop, feat/v3-argocd, feat/v3-monitoring-discord]
     paths:
       - 'argocd/**'
       - 'helm/**'
       - 'scripts/validate-v3-gitops.rb'
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
+      - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/validate-v3-main-monitoring.rb'
+      - 'scripts/prepare-v3-alertmanager.py'
+      - 'scripts/prepare-v3-prometheus.py'
+      - 'scripts/prepare-v3-prometheus-transition.py'
+      - 'scripts/lib/v3_prometheus_transition.py'
+      - 'scripts/test_v3_prometheus_transition.py'
+      - 'operations/monitoring/**'
       - '.github/workflows/validate-v3-gitops.yml'
   workflow_dispatch:
 permissions:
@@ -37,3 +53,53 @@ jobs:
         run: |
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
+          ruby scripts/validate-v3-main-monitoring.rb
+          ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
+          ruby scripts/validate-v3-monitoring.rb --write-main-config "$RUNNER_TEMP/v3-agent-main/prometheus.yml"
+      # 모의 Docker로 단일 TSDB writer·복구 순서 검사. 실제 서비스/네트워크 호출 없음.
+      - name: Validate Redis dashboard JSON
+        run: python3 -m json.tool operations/monitoring/grafana/redis.json > /dev/null
+      - name: Validate Prometheus transition safety
+        run: PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p test_v3_prometheus_transition.py -v
+      # 참조 대상 접속 없이 Agent 모드의 실제 Prometheus 문법 검사.
+      - name: Validate Prometheus Agent config
+        run: |
+          chmod 644 "$RUNNER_TEMP/v3-agent/prometheus.yml"
+          docker run --rm --read-only --network none \
+            --volume "$RUNNER_TEMP/v3-agent:/check:ro" \
+            --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
+            check config --syntax-only --agent /check/prometheus.yml
+          chmod 644 "$RUNNER_TEMP/v3-agent-main/prometheus.yml"
+          docker run --rm --read-only --network none \
+            --volume "$RUNNER_TEMP/v3-agent-main:/check:ro" \
+            --entrypoint /bin/promtool prom/prometheus:v3.15.0 \
+            check config --syntax-only --agent /check/prometheus.yml
+      # 실제 웹후크 대신 가짜 입력을 사용하며 외부 통신을 차단한 문법 검사.
+      - name: Validate Alertmanager config
+        run: |
+          mkdir -p "$RUNNER_TEMP/v3-alertmanager"
+          printf '%s\n' 'https://discord.com/api/webhooks/0/validation-placeholder' > "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url"
+          chmod 644 "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url"
+          docker run --rm --read-only --network none \
+            --user 65534:65534 --cap-drop ALL --security-opt no-new-privileges:true \
+            --volume "$PWD/operations/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
+            --volume "$RUNNER_TEMP/v3-alertmanager/discord-webhook-url:/run/secrets/discord-webhook-url:ro" \
+            --entrypoint /bin/amtool \
+            prom/alertmanager@sha256:58e117eabccebbff04e6643a3432d6315a2cc3a8c24ab5849bc628886bf08857 \
+            check-config /etc/alertmanager/alertmanager.yml
+      # 가상 시각으로 DLQ 빈 값 오경보 방지·만료 경고를 검사. 실제 큐·네트워크 사용 없음.
+      - name: Validate payment RabbitMQ rules
+        run: |
+          for rule_check in check test; do
+            if [ "$rule_check" = check ]; then
+              rule_file=payment-rabbitmq-alerts.yml
+            else
+              rule_file=payment-rabbitmq-alerts.test.yml
+            fi
+            docker run --rm --read-only --network none \
+              --tmpfs /tmp:rw,noexec,nosuid,size=64m,mode=1777 \
+              --volume "$PWD/operations/monitoring/prometheus:/check:ro" \
+              --workdir /check --entrypoint /bin/promtool \
+              prom/prometheus@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e \
+              "$rule_check" rules "/check/$rule_file"
+          done

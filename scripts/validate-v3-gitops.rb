@@ -9,7 +9,7 @@ require_relative 'lib/v3_gitops_errors'
 ROOT = File.expand_path('..', __dir__)
 MAIN = %w[member-service catalog-service gifting-service recommendation-service notification-service].freeze
 EXPECTED = (['payment-server'] + MAIN + ['ai-runtime']).freeze
-ALLOWED = %w[Deployment ConfigMap Service PodDisruptionBudget].freeze
+ALLOWED = %w[Deployment ConfigMap Service PodDisruptionBudget NetworkPolicy].freeze
 CONTEXT = 'seonjalal-v3'.freeze
 NAMESPACE = 'production'.freeze
 
@@ -82,6 +82,9 @@ begin
     objects = docs(run('helm', 'template', name, chart, '--namespace', NAMESPACE, *args))
     require_state(objects.all? { |o| ALLOWED.include?(o['kind']) }, "#{name}: 데이터·Secret·RBAC 등 범위 밖 리소스 포함")
     deployment = objects.find { |o| o['kind'] == 'Deployment' }
+    policies = objects.select { |o| o['kind'] == 'NetworkPolicy' }
+    require_state(objects.length == (MAIN.include?(name) ? 6 : 5), "#{name}: 관리 리소스 수 불일치")
+    require_state(policies.length == (MAIN.include?(name) ? 1 : 0), "#{name}: Main 외 정책 또는 정책 누락")
     require_state(deployment.dig('spec', 'replicas') == 1, "#{name}: 기존 1개 실행 수 유지 필요")
     selector = deployment.dig('spec', 'selector', 'matchLabels')
     require_state(selector['app.kubernetes.io/instance'] == name, "#{name}: 기존 Pod selector 불일치")
@@ -90,6 +93,8 @@ begin
     containers = deployment.dig('spec', 'template', 'spec', 'containers')
     require_state(containers.all? { |c| c['image'].match?(/@sha256:[0-9a-f]{64}\z/) }, "#{name}: Image Digest 고정 필요")
     if MAIN.include?(name)
+      require_state(containers.first['image'].end_with?('@sha256:e4b71d4de5f2cbb3cd62b1a7a447ef09b9043316dd29648fb739687f0998c6c8'), "#{name}: 검토된 Main 이미지 불일치")
+      require_state(policies.first.dig('metadata', 'annotations', 'argocd.argoproj.io/sync-wave') == '-1', "#{name}: 정책 선적용 누락")
       env = objects.find { |o| o['kind'] == 'ConfigMap' && o.dig('metadata', 'name') == "#{name}-runtime" }.fetch('data')
       %w[SCHEDULING_ENABLED AI_PROFILE_AMQP_ENABLED AI_PROFILE_SCHEDULING_ENABLED AI_PROFILE_RESULT_CONSUMER_ENABLED].each do |flag|
         expected = name == 'recommendation-service' ? 'true' : 'false'
@@ -99,6 +104,8 @@ begin
       require_state(containers.map { |c| c['name'] }.sort == %w[chat profiler search], 'AI 통합 컨테이너 구성 변경')
       strategy = deployment.dig('spec', 'strategy', 'rollingUpdate')
       require_state(strategy == {'maxSurge' => 0, 'maxUnavailable' => 1}, 'AI Search 단일 실행 교체 조건 변경')
+    elsif name == 'payment-server'
+      require_state(containers.first['image'].end_with?('@sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a'), 'Payment 운영 이미지 변경 금지')
     end
     if ARGV.include?('--live')
       # helm get은 기존 수동 Release의 저장 manifest만 조회하며 서버를 변경하지 않습니다.
@@ -119,6 +126,7 @@ begin
     puts "#{name}: 렌더·replicas=1·Digest·selector·실행 경계 정상#{ARGV.include?('--live') ? ' / 저장 Helm manifest 동일' : ''}"
   end
   require_state(all_objects.map { |o| identity(o) }.uniq.length == all_objects.length, 'Application 간 공유 리소스 중복')
+  require_state(all_objects.length == 40, 'Main 정책 5개 포함 관리 리소스 40개 필요')
   # 실제 운영 overlay를 검사해 문서와 실적용 값이 다른 경우를 차단합니다.
   automatic = docs(run('helm', 'template', 'v3-production-apps', wrapper, '--namespace', 'argocd',
                        '--values', 'argocd/production-automation.yaml'))

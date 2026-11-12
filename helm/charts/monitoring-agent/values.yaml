@@ -1,0 +1,30 @@
+# 기존 서버가 저장·경고 평가 담당. 실행 전에는 검토용 0개 유지.
+replicas: 0
+receiverReviewed: false
+image:
+  repository: prom/prometheus
+  digest: ""
+remoteWrite:
+  # 실제 내부 주소는 검토한 로컬 values로 전달. 예시 주소 기동 금지.
+  url: http://monitoring.internal.invalid:9090/api/v1/write
+cluster: seonjalal-v3
+environment: production
+vhost: gift
+redis:
+  # Exporter 배포 검증 후 명시적으로 활성화. 기존 RabbitMQ 수집 기본값 보존.
+  enabled: false
+main:
+  # Health 호환 이미지·인증 Secret·관리 포트 확인 후에만 활성화.
+  enabled: false
+  credentialsSecret: v3-main-monitoring
+scrapeInterval: 15s
+scrapeTimeout: 5s
+sampleLimit: 15000
+nodeSelector:
+  workload: system
+  kubernetes.io/os: linux
+resources:
+  # 초기 예약값이며 실사용량·최적값 아님.
+  requests: {cpu: 100m, memory: 256Mi, ephemeral-storage: 256Mi}
+  limits: {cpu: 500m, memory: 512Mi, ephemeral-storage: 2Gi}
+walSizeLimit: 1Gi

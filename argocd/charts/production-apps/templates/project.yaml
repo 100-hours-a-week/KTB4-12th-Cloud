@@ -17,3 +17,4 @@ spec:
     - {group: "", kind: ConfigMap}
     - {group: "", kind: Service}
     - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
