@@ -1,7 +1,7 @@
 component: main
 image:
-  # 3.0.2 Health 호환 클래스·기존 monitoring 보안/프로필의 정적 대조 완료.
-  digest: sha256:e4b71d4de5f2cbb3cd62b1a7a447ef09b9043316dd29648fb739687f0998c6c8
+  # 3.0.3 Health 호환 클래스·기존 monitoring 보안/프로필의 정적 대조 완료.
+  digest: sha256:35597c7693fc63fccf16d74a033cf832fabf5d4aec1147076e9bc1e5781d7551
   # 릴리스 코드·빌드 확인 기준이며, 실제 EKS 연결 검증 완료를 의미하지 않음.
   mainRuntimeCompatible: true
 monitoring:

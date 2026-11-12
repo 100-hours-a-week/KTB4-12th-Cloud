@@ -4,8 +4,8 @@ component: payment
 deploymentAnnotations:
   seonjalal.io/gitops-verification: "main-auto-sync-20261112-01"
 image:
-  # 릴리스 3.0.1의 사용자 확인 ECR Image Index Digest.
-  digest: sha256:f22e24857c48a60de6961c0452e7df8a5170f83ffb668a3b59842500beff098a
+  # 릴리스 3.0.3의 ECR Image Index Digest.
+  digest: sha256:e5d0f7fe00b0636c8f701299ec0c596bbab6a462bf4305dc1e346a318a078d26
 serviceAccount:
   name: default
   automountServiceAccountToken: false
