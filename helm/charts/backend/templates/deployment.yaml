@@ -31,7 +31,7 @@ spec:
         seonjalal.io/redis-access: "true"
         {{- end }}
       annotations:
-        checksum/runtime: {{ toJson .Values.env | sha256sum }}
+        checksum/runtime: {{ include "backend.runtimeEnv" . | sha256sum }}
         checksum/bootstrap: {{ printf "%s\n%s" (.Files.Get "files/start.sh") (.Files.Get "files/rds-ca.pem") | sha256sum }}
     spec:
       serviceAccountName: {{ .Values.serviceAccount.name }}
@@ -70,6 +70,10 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
+            {{- if .Values.monitoring.enabled }}
+            - name: management
+              containerPort: 8081
+            {{- end }}
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -82,14 +86,22 @@ spec:
             - secretRef:
                 name: {{ . }}
             {{- end }}
-          {{- with .Values.secretEnv }}
+          {{- if or .Values.secretEnv .Values.monitoring.enabled }}
           env:
-            {{- range . }}
+            {{- range .Values.secretEnv }}
             - name: {{ .name }}
               valueFrom:
                 secretKeyRef:
                   name: {{ .secretName }}
                   key: {{ .key }}
+            {{- end }}
+            {{- if .Values.monitoring.enabled }}
+            # envFrom의 기존 값보다 전용 Secret 우선. 값은 manifest에 포함하지 않음.
+            - name: MONITORING_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.monitoring.credentialsSecret }}
+                  key: password
             {{- end }}
           {{- end }}
           startupProbe:

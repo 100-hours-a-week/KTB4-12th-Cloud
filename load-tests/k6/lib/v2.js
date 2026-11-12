@@ -203,7 +203,7 @@ export function isSmokeProfile() {
   return normalizeProfile(PROFILE) === 'smoke';
 }
 
-// 스테이징 ALB는 운영과 공용이다. 30 RPS를 넘는 profile(spike 60, breakpoint 최대 500)은 명시 승인 변수가 있어야 한다.
+// 스테이징 ALB는 운영과 공용이다. 30 RPS를 넘는 profile(spike 60, breakpoint 최대 160)은 명시 승인 변수가 있어야 한다.
 export function guardSharedAlb() {
   const profile = normalizeProfile(PROFILE);
   if ((profile === 'spike' || profile === 'breakpoint') && __ENV.ALLOW_ABOVE_30_RPS !== 'true') {
@@ -242,6 +242,19 @@ export function v2WorkloadOptions({ workload, exec, smokeExec, rwThresholds = fa
     delete thresholds[`http_req_duration{workload:${workload}}`];
     thresholds[`http_req_duration{workload:${workload},rw:read}`] = ['p(95)<500', 'p(99)<1000'];
     thresholds[`http_req_duration{workload:${workload},rw:write}`] = ['p(95)<800', 'p(99)<1500'];
+  }
+  if (profile === 'breakpoint' && rwThresholds) {
+    // 한계를 찾는 시험이라 임계값 위반 자체는 결과다. 다만 서비스가 무너진 뒤 계속 밀지 않도록 지연이 2초를 넘어 30초 지속되면 중단한다.
+    thresholds[`http_req_duration{workload:${workload},rw:read}`].push({
+      threshold: 'p(95)<2000',
+      abortOnFail: true,
+      delayAbortEval: '30s',
+    });
+    thresholds[`http_req_duration{workload:${workload},rw:write}`].push({
+      threshold: 'p(95)<3000',
+      abortOnFail: true,
+      delayAbortEval: '30s',
+    });
   }
   const base = {
     discardResponseBodies: false,
@@ -313,6 +326,22 @@ export function v2WorkloadOptions({ workload, exec, smokeExec, rwThresholds = fa
           { duration: '2m', target: 0 },
         ],
       }),
+    // 단계 상승: 단계마다 30초 램프 후 3분 유지. 1단계(30)는 통과가 확인된 값이다. 최대 160 반복/초.
+    breakpoint: () =>
+      arrival('ramping-arrival-rate', {
+        startRate: 5,
+        preAllocatedVUs: 200,
+        maxVUs: 600,
+        stages: [
+          { duration: '1m', target: 30 },
+          { duration: '2m', target: 30 },
+          ...[45, 60, 80, 100, 130, 160].flatMap((target) => [
+            { duration: '30s', target },
+            { duration: '3m', target },
+          ]),
+          { duration: '1m', target: 0 },
+        ],
+      }),
     spike: () =>
       arrival('ramping-arrival-rate', {
         startRate: 5,
@@ -329,7 +358,7 @@ export function v2WorkloadOptions({ workload, exec, smokeExec, rwThresholds = fa
       }),
   };
   if (!scenarios[profile]) {
-    throw new Error(`Unsupported PROFILE '${PROFILE}' for the V2 workload. Use smoke, baseline, capacity, or spike.`);
+    throw new Error(`Unsupported PROFILE '${PROFILE}' for the V2 workload. Use smoke, baseline, capacity, spike, or breakpoint.`);
   }
   return { ...base, scenarios: { [workload]: scenarios[profile]() }, thresholds };
 }

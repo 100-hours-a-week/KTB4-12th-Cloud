@@ -1,0 +1,319 @@
+{
+  "uid": "seonjalal-v3-rabbitmq",
+  "title": "Seonjalal V3 / RabbitMQ",
+  "description": "RabbitMQ 3노드 및 수집 대상 gift 큐 전용 운영 대시보드. 큐 필터 범위 내 관측 지표이며 전체 브로커 큐 목록이 아님.",
+  "schemaVersion": 39,
+  "version": 0,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "tags": [
+    "gift",
+    "monitoring",
+    "rabbitmq",
+    "payment"
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 9,
+      "type": "text",
+      "title": "지표를 읽기 전에",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**범위: V3 production RabbitMQ 3노드 / gift.** 기본 노드 지표와 Agent가 수집하는 결제·프로파일링·신고 큐를 표시합니다. 큐 지표는 큐 리더가 있는 노드에서 나올 수 있어 3노드를 모두 수집합니다.\n\n**No data는 0건이 아닙니다.** 미생성 큐·수집 장애를 확인하세요. up=1은 스크랩 성공이며 quorum 정상·메시지 처리 성공을 증명하지 않습니다. Consumer=0도 대기 메시지 존재 여부와 함께 판단합니다."
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "브로커별 기본 지표 수집 상태",
+      "description": "스크랩 성공 1 / 실패 0. 시계열 부재는 No data. 노드 또는 quorum 가용성과 구분.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"}",
+          "legendFormat": "{{pod}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "RabbitMQ memory usage",
+      "description": "Resident memory as a percentage of the configured memory limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_process_resident_memory_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"} / rabbitmq_resident_memory_limit_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"} * 100",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "RabbitMQ disk space",
+      "description": "Available disk space compared with the low-space limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_disk_space_available_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"}",
+          "legendFormat": "available · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "rabbitmq_disk_space_available_limit_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"}",
+          "legendFormat": "limit · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "수집 대상 큐 — Ready / Unacked",
+      "description": "Agent의 결제·프로파일링·신고 큐 필터 범위 내 관측값. 실제 처리 성공·실패 또는 전체 큐 목록과 구분.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages_ready{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\"})",
+          "legendFormat": "ready · {{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages_unacked{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\"})",
+          "legendFormat": "unacked · {{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "수집 대상 큐 — Consumer 수",
+      "description": "Agent의 결제·프로파일링·신고 큐 필터 범위 내 관측값. 실제 처리 성공·실패 또는 전체 큐 목록과 구분.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_consumers{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\"})",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "수집 대상 큐 — 재전달 / 초",
+      "description": "Agent의 결제·프로파일링·신고 큐 필터 범위 내 관측값. 실제 처리 성공·실패 또는 전체 큐 목록과 구분.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_redelivered_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\"}[$__rate_interval]))",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 8
+      }
+    }
+  ]
+}

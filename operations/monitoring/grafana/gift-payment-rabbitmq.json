@@ -1,0 +1,509 @@
+{
+  "uid": "seonjalal-v3-payment-rabbitmq",
+  "title": "Seonjalal V3 / Payment RabbitMQ",
+  "description": "BE 결제 MQ 대시보드의 V3 운영 수집 범위 적용본. 결제 큐 지표 부재는 정상 0건과 다름. 원본 BE 5a32a6aa.",
+  "schemaVersion": 39,
+  "version": 0,
+  "editable": true,
+  "timezone": "browser",
+  "refresh": "15s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "tags": [
+    "gift",
+    "monitoring",
+    "rabbitmq",
+    "payment"
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 9,
+      "type": "text",
+      "title": "지표를 읽기 전에",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**범위: seonjalal-v3 / production / gift.** 결제 작업 큐 5개·DLQ 5개를 대상으로 합니다.\n\n**No data ≠ 메시지 0건.** 큐 미생성·지표 부재·수집 장애를 확인하세요. 결제 지표를 강제로 0으로 채우지 않습니다. 빈 DLQ의 head timestamp 0도 나이 계산에서 제외합니다.\n\n하단의 기존 신고·프로파일링 큐는 수집 연결 확인용입니다. Consumer 수·Confirm·경고 미발화만으로 결제 업무 성공을 판정하지 않습니다. 수집 상태는 Explore에서 `up{cluster=\"seonjalal-v3\",environment=\"production\"}`로 확인하세요."
+      }
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "DLQ depth",
+      "description": "Total messages in the five payment DLQs; non-zero messages need operator review.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]dlq$\"})",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Work queue backlog",
+      "description": "Ready messages await delivery; unacked messages are in flight or awaiting acknowledgement.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages_ready{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$\"})",
+          "legendFormat": "ready · {{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages_unacked{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$\"})",
+          "legendFormat": "unacked · {{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Work queue consumers",
+      "description": "Zero consumers can indicate a missing worker; compare with feature flags and rollout state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_consumers{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$\"})",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Work queue redeliveries / second",
+      "description": "Redelivery rate is a retry signal, not a count of unique failed jobs.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_redelivered_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]q$\"}[$__rate_interval]))",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "payment.events publish / confirm / return rate",
+      "description": "Exchange counters are aggregate; they do not identify Outbox events or detect every missing fan-out binding. Aggregation preserves the BE draft: maximum per-node rate, NOT the cluster-wide sum. Confirm is broker acknowledgement, not business completion. Return does not detect every missing partial binding.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (exchange, vhost) (rate(rabbitmq_detailed_exchange_messages_published_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",exchange=\"payment.events\"}[$__rate_interval]))",
+          "legendFormat": "published",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (exchange, vhost) (rate(rabbitmq_detailed_exchange_messages_confirmed_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",exchange=\"payment.events\"}[$__rate_interval]))",
+          "legendFormat": "confirmed",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "max by (exchange, vhost) (rate(rabbitmq_detailed_exchange_messages_unroutable_returned_total{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",exchange=\"payment.events\"}[$__rate_interval]))",
+          "legendFormat": "unroutable returned",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Oldest DLQ message age",
+      "description": "Derived from the oldest message timestamp; requires queue_metrics, filtered to the five DLQs. Empty-head timestamp 0 is excluded. No data can mean an empty queue, missing queue, or collection issue; check depth and scrape health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max by (queue) ((rabbitmq_detailed_queue_head_message_timestamp{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-dlq-age\",vhost=\"gift\",queue=~\"^gift[.](receipt[.]email|roulette|coupon[.]restore|payment[.](approval|cancellation)[.]recovery)[.]dlq$\"} > 0))",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 8
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "RabbitMQ memory usage",
+      "description": "Resident memory as a percentage of the configured memory limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_process_resident_memory_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"} / rabbitmq_resident_memory_limit_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"} * 100",
+          "legendFormat": "{{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "RabbitMQ disk space",
+      "description": "Available disk space compared with the low-space limit.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rabbitmq_disk_space_available_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"}",
+          "legendFormat": "available · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "rabbitmq_disk_space_available_limit_bytes{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq\"}",
+          "legendFormat": "limit · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "기존 신고·프로파일링 큐 — 메시지 수",
+      "description": "결제 큐가 없는 상태에서도 기존 큐 시계열 수신 확인용. 큐 존재·Consumer 존재가 실제 업무 처리 성공을 증명하지 않음.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_messages{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^(Report[.](discord|sheets|retry|dlq)|profiling[.](request|result)([.]failed)?)$\"})",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "기존 신고·프로파일링 큐 — Consumer 수",
+      "description": "결제 큐가 없는 상태에서도 기존 큐 시계열 수신 확인용. 큐 존재·Consumer 존재가 실제 업무 처리 성공을 증명하지 않음.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "seonjalal-prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (queue) (rabbitmq_detailed_queue_consumers{cluster=\"seonjalal-v3\",environment=\"production\",job=\"rabbitmq-queues\",vhost=\"gift\",queue=~\"^(Report[.](discord|sheets|retry|dlq)|profiling[.](request|result)([.]failed)?)$\"})",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "seonjalal-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 8
+      }
+    }
+  ]
+}

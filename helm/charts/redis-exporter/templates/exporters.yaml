@@ -1,0 +1,121 @@
+{{- if ne .Release.Namespace "production" }}
+{{- fail "production namespace 전용 Redis 수집 구성" }}
+{{- end }}
+{{- if gt (int .Values.replicas) 0 }}
+{{- if or (not .Values.launchReviewed) (not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest)) }}
+{{- fail "기존 인증 권한·자원·이미지 Digest·변경 범위 검토 필요" }}
+{{- end }}
+{{- end }}
+{{- $targets := list
+  (dict "name" "redis-auth-0" "group" "auth" "component" "data" "secret" "redis-auth" "service" "redis-auth-headless" "port" 6379)
+  (dict "name" "redis-auth-1" "group" "auth" "component" "data" "secret" "redis-auth" "service" "redis-auth-headless" "port" 6379)
+  (dict "name" "redis-product-0" "group" "product" "component" "data" "secret" "redis-product" "service" "redis-product-headless" "port" 6379)
+  (dict "name" "redis-product-1" "group" "product" "component" "data" "secret" "redis-product" "service" "redis-product-headless" "port" 6379)
+  (dict "name" "redis-sentinel-0" "group" "sentinel" "component" "sentinel" "secret" "redis-sentinel" "service" "redis-sentinel-headless" "port" 26379)
+  (dict "name" "redis-sentinel-1" "group" "sentinel" "component" "sentinel" "secret" "redis-sentinel" "service" "redis-sentinel-headless" "port" 26379)
+  (dict "name" "redis-sentinel-2" "group" "sentinel" "component" "sentinel" "secret" "redis-sentinel" "service" "redis-sentinel-headless" "port" 26379)
+}}
+{{- range $target := $targets }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $target.name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  replicas: {{ $.Values.replicas }}
+  revisionHistoryLimit: 2
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      seonjalal.io/redis-target: {{ $target.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: v3-redis-exporter
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        seonjalal.io/redis-target: {{ $target.name }}
+        seonjalal.io/redis-group: {{ $target.group }}
+        seonjalal.io/redis-component: {{ $target.component }}
+        seonjalal.io/redis-access: "true"
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 59000
+        runAsGroup: 59000
+        seccompProfile: {type: RuntimeDefault}
+      nodeSelector:
+        {{- toYaml $.Values.nodeSelector | nindent 8 }}
+      containers:
+        - name: exporter
+          {{- if $.Values.image.digest }}
+          image: "{{ $.Values.image.repository }}@{{ $.Values.image.digest }}"
+          {{- else }}
+          image: "{{ $.Values.image.repository }}:v1.93.0"
+          {{- end }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --connection-timeout=3s
+            - --redis-only-metrics
+            - --config-command=-
+            - --disable-exporting-key-values
+            - --disable-scrape-endpoint
+            - --check-search-indexes=^$
+          env:
+            - name: REDIS_ADDR
+              value: "redis://{{ $target.name }}.{{ $target.service }}.production.svc.cluster.local:{{ $target.port }}"
+            # 비밀번호는 기존 Secret에서만 주입. URL·args·ConfigMap에 포함하지 않음.
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ $target.secret }}, key: password}
+          ports: [{name: metrics, containerPort: 9121}]
+          startupProbe:
+            httpGet: {path: /, port: metrics}
+            periodSeconds: 5
+            failureThreshold: 12
+          readinessProbe:
+            httpGet: {path: /, port: metrics}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /, port: metrics}
+            periodSeconds: 15
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $.Release.Name }}-{{ $target.name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      seonjalal.io/redis-target: {{ $target.name }}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # 같은 namespace의 기존 Agent만 exporter HTTP 접근 허용.
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: v3-metrics-agent}
+      ports: [{port: 9121, protocol: TCP}]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              statefulset.kubernetes.io/pod-name: {{ $target.name }}
+      ports: [{port: {{ $target.port }}, protocol: TCP}]
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports: [{port: 53, protocol: UDP}, {port: 53, protocol: TCP}]
+{{- end }}

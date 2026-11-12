@@ -369,6 +369,21 @@ class MixedReadWriteTests(unittest.TestCase):
         stages = self.inspect("capacity")["scenarios"]["v2_rw"]["stages"]
         self.assertEqual(max(stage["target"] for stage in stages), 30)
 
+    def test_breakpoint_steps_up_to_160_and_aborts_on_collapse(self):
+        env = k6_env("http://127.0.0.1:1", PROFILE="breakpoint", ALLOW_ABOVE_30_RPS="true")
+        flags = [part for key, value in env.items()
+                 if key.startswith(("STAGING_", "V2_", "ALLOW_", "PROFILE", "BASE_URL")) for part in ("-e", f"{key}={value}")]
+        result = subprocess.run(["k6", "inspect", *flags, str(ROOT / self.SCRIPT)], cwd=ROOT, env=env,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stderr[-800:])
+        spec = json.loads(result.stdout)
+        stages = spec["scenarios"]["v2_rw"]["stages"]
+        self.assertEqual(max(stage["target"] for stage in stages), 160)
+        self.assertEqual(stages[-1]["target"], 0)
+        for key in ("read", "write"):
+            thresholds = spec["thresholds"][f"http_req_duration{{workload:v2_rw,rw:{key}}}"]
+            self.assertTrue([t for t in thresholds if isinstance(t, dict) and t.get("abortOnFail")])
+
     def test_profiles_above_30_need_approval(self):
         with mock_server() as base:
             for profile in ("spike", "breakpoint"):
