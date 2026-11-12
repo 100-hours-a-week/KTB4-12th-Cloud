@@ -12,6 +12,11 @@ image:
   pullPolicy: IfNotPresent
   # Sentinel 연결·IRSA STS 모듈이 포함된 Main 이미지 확인 후에만 true.
   mainRuntimeCompatible: false
+monitoring:
+  # PR #616 반영 Main 이미지·전용 인증 Secret·네트워크 검증 후 활성화.
+  enabled: false
+  healthBridgeImageReviewed: false
+  credentialsSecret: v3-main-monitoring
 database:
   # 기존 V2와 공유하는 DB의 새 스키마 호환성 검토 후에만 true.
   schemaReviewed: false

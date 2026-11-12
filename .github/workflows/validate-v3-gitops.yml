@@ -8,6 +8,7 @@ on:
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/validate-v3-main-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
       - 'scripts/prepare-v3-prometheus.py'
       - 'scripts/prepare-v3-prometheus-transition.py'
@@ -24,6 +25,7 @@ on:
       - 'scripts/lib/v3_gitops_errors.rb'
       - 'scripts/test-v3-gitops-errors.rb'
       - 'scripts/validate-v3-monitoring.rb'
+      - 'scripts/validate-v3-main-monitoring.rb'
       - 'scripts/prepare-v3-alertmanager.py'
       - 'scripts/prepare-v3-prometheus.py'
       - 'scripts/prepare-v3-prometheus-transition.py'
@@ -51,6 +53,7 @@ jobs:
         run: |
           ruby scripts/test-v3-gitops-errors.rb
           ruby scripts/validate-v3-gitops.rb
+          ruby scripts/validate-v3-main-monitoring.rb
           ruby scripts/validate-v3-monitoring.rb --write-config "$RUNNER_TEMP/v3-agent/prometheus.yml"
           ruby scripts/validate-v3-monitoring.rb --write-main-config "$RUNNER_TEMP/v3-agent-main/prometheus.yml"
       # 모의 Docker로 단일 TSDB writer·복구 순서 검사. 실제 서비스/네트워크 호출 없음.

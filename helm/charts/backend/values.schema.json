@@ -169,6 +169,28 @@
           "type": "string"
         }
       }
+    },
+    "monitoring": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "healthBridgeImageReviewed",
+        "credentialsSecret"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "healthBridgeImageReviewed": {
+          "type": "boolean"
+        },
+        "credentialsSecret": {
+          "enum": [
+            "v3-main-monitoring"
+          ]
+        }
+      }
     }
   }
 }
